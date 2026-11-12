@@ -32,6 +32,7 @@ type Manifest struct {
 	Revision      string      `json:"revision"`
 	Public        bool        `json:"public"`
 	Advisory      string      `json:"advisory"`
+	AdvisoryID    string      `json:"advisory_id,omitempty"`
 	PolicyDigest  string      `json:"policy_digest"`
 	ProfileDigest string      `json:"profile_digest"`
 	Agent         string      `json:"agent"`
@@ -50,6 +51,8 @@ type Limits struct {
 	MaxAttempts   int `json:"max_attempts"`
 }
 type Target struct {
+	// DomainContext is reviewed mapping/policy input, never Jira or model output.
+	DomainContext json.RawMessage   `json:"domain_context,omitempty"`
 	Repository    string            `json:"repository"`
 	Branch        string            `json:"branch"`
 	SourceSHA     string            `json:"source_sha"`
@@ -75,6 +78,9 @@ func (m Manifest) Digest() string { return Hash(m) }
 func (m Manifest) Validate() error {
 	if m.SchemaVersion != 1 || !safeID.MatchString(m.CaseID) || m.Revision == "" || !m.Public || m.Advisory == "" || !digest.MatchString(m.PolicyDigest) || !digest.MatchString(m.ProfileDigest) || !safeID.MatchString(m.Agent) {
 		return errors.New("invalid trusted manifest identity or public disclosure")
+	}
+	if m.AdvisoryID != "" && !regexp.MustCompile(`^CVE-[0-9]{4}-[0-9]{4,}$`).MatchString(m.AdvisoryID) {
+		return errors.New("invalid canonical advisory identity")
 	}
 	if !regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`).MatchString(m.Jira.Project) || !regexp.MustCompile(`^[1-9][0-9]*$`).MatchString(m.Jira.IssueTypeID) || m.Jira.AssigneeAccountID == "" {
 		return errors.New("invalid Jira destination")

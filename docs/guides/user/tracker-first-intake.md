@@ -122,3 +122,25 @@ a successful subset of branches.
 Automated tests use synthetic Jira and scheduler transports plus the real journal
 engine. Those tests do not establish live source applicability, hosted Pi results
 or production GitLab recovery conformance.
+
+
+### Current Jira eligibility
+
+A protected tracker profile may enable `jira.issue_controls` with bounded
+`required_labels` and `blocked_labels` lists. Enabled controls require explicit
+`security: null`, the configured project and issue type, a current `new` or
+`indeterminate` status category, and the exact configured assignee. Required labels
+match exactly; blocked labels match without case sensitivity. Missing
+classification, unknown status, reassignment or lookup failure prevents work.
+Editable issue properties and labels never grant execution authority.
+
+The adapter reads routing/classification metadata before substantive issue content
+or assessment comments. Investigations receive the required labels. The controller
+rechecks eligibility before dispatch and publication; workers check before source
+fetch/inference and accepting evidence. Revocation leaves work unresolved, never
+not affected. Install the controls explicitly: policy digests do not execute gates.
+Legacy profiles omitting `issue_controls` keep their existing behavior.
+
+A manifest can supply `advisory_id` as a canonical CVE separately from its
+human-readable `advisory`. Original ten-field `fullsend.cve.intake` properties
+then use that identifier as `cve`; constructed-fixture labels remain descriptions.

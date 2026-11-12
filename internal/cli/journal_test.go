@@ -3,12 +3,15 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fullsend-ai/fullsend/internal/forge"
 	"github.com/fullsend-ai/fullsend/internal/journal"
@@ -122,4 +125,39 @@ func TestJournalJSONBoundsAndSanitizedErrors(t *testing.T) {
 		require.ErrorIs(t, sanitizeJournalError(fmt.Errorf("token-secret: %w", sentinel)), sentinel)
 	}
 	require.NotContains(t, sanitizeJournalError(errors.New("token-secret")).Error(), "token-secret")
+}
+
+func TestJournalCLIParentPredicatesRejectStaleEffect(t *testing.T) {
+	e, b := journalCommandFixture(t)
+	ctx := context.Background()
+	require.NoError(t, b.Initialize(ctx))
+	parent, err := e.Admit(ctx, "parent", "manifest", json.RawMessage(`{"state":"admitted"}`))
+	require.NoError(t, err)
+	parent, err = e.Read(ctx, "parent")
+	require.NoError(t, err)
+	sum := sha256.Sum256(parent.Data)
+	flags := []string{"--require-record", "parent", "--require-binding", "manifest", "--require-data-digest", hex.EncodeToString(sum[:])}
+	_, err = runJournal(t, `{}`, append([]string{"admit", "--id", "child", "--binding", "plan"}, flags...)...)
+	require.NoError(t, err)
+	lease, err := e.Claim(ctx, "child", "worker", time.Minute)
+	require.NoError(t, err)
+	args := append([]string{"intent", "--id", "child", "--owner", "worker", "--generation", fmt.Sprint(lease.Generation), "--effect-id", "publish", "--kind", "pr", "--binding", "approved"}, flags...)
+	_, err = runJournal(t, "", args...)
+	require.NoError(t, err)
+	parentLease, err := e.Claim(ctx, "parent", "controller", time.Minute)
+	require.NoError(t, err)
+	_, err = e.Update(ctx, "parent", parentLease, func(r *journal.Record) error { r.Data = json.RawMessage(`{"state":"revoked"}`); return nil })
+	require.NoError(t, err)
+	_, err = runJournal(t, "", append([]string{"effect", "--id", "child", "--owner", "worker", "--generation", fmt.Sprint(lease.Generation), "--effect-id", "publish", "--status", "in_flight"}, flags...)...)
+	require.ErrorIs(t, err, journal.ErrBinding)
+	child, err := e.Read(ctx, "child")
+	require.NoError(t, err)
+	require.Equal(t, "intended", child.Effects["publish"].Status)
+	// Read remains available, while malformed/partial/self requirements fail closed.
+	_, err = runJournal(t, "", append([]string{"read", "--id", "child"}, flags...)...)
+	require.NoError(t, err)
+	for _, a := range [][]string{{"initialize", "--require-record", "parent"}, {"read", "--id", "parent", "--require-record", "parent"}, {"read", "--id", "child", "--require-binding", "manifest"}} {
+		_, err = runJournal(t, "", a...)
+		require.ErrorIs(t, err, journal.ErrBinding)
+	}
 }

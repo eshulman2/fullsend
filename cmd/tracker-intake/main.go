@@ -85,7 +85,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	controller := trackerflow.Controller{Journal: engine, Tracker: trackerflow.JiraTracker{Client: jc}, Scheduler: trackerflow.GitLabScheduler{Client: control, Owner: profile.Control.Owner, Repository: profile.Control.Repository, Ref: profile.Control.WorkerRef, Since: profile.Control.LookupSince}, Authorizer: trackerflow.ProfileAuthority{Profile: profile, Control: control, Jira: jc, Getenv: os.Getenv, Token: token}, Owner: *owner, LeaseTTL: 10 * time.Minute}
+	controller := trackerflow.Controller{Journal: engine, Tracker: trackerflow.JiraTracker{Client: jc, Controls: profile.Jira.IssueControls, AssigneeAccountID: profile.Jira.AssigneeAccountID}, Scheduler: trackerflow.GitLabScheduler{Client: control, Owner: profile.Control.Owner, Repository: profile.Control.Repository, Ref: profile.Control.WorkerRef, Since: profile.Control.LookupSince}, Authorizer: trackerflow.ProfileAuthority{Profile: profile, Control: control, Jira: jc, Getenv: os.Getenv, Token: token}, Owner: *owner, LeaseTTL: 10 * time.Minute}
 	report, err := controller.Cycle(ctx, manifest)
 	if err != nil {
 		return err

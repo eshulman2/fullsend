@@ -65,3 +65,20 @@ using GitLab's file revision precondition for the complete transition.
 A checksum detects accidental corruption; it does not authenticate an actor.
 Protected storage and current host authorization remain required. No delivery
 or publication guarantee is described as exactly once.
+
+### Bind child mutations to current parent admission
+
+Promotion controllers can pass all three flags on journal commands:
+
+```text
+--require-record CASE_ID --require-binding MANIFEST_DIGEST --require-data-digest PARENT_DATA_SHA256
+```
+
+The data digest is SHA256 of the exact parent record's `data` bytes, as observed
+by a trusted context exporter. Every mutation verifies the parent binding and
+state in the same whole-document conditional write. A changed parent rejects the
+write; a concurrent change produces a revision conflict. Re-evaluate admission
+before proceeding rather than retrying a model call or external publication.
+Reads remain available for recovery even after a parent changes. Requirements
+cannot refer to the mutated record itself. They supplement the child operation's
+own ownership generation and do not replace source, Jira or human-approval gates.

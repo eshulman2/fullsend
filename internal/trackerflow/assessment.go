@@ -62,6 +62,9 @@ func (j JiraTracker) FindAssessment(ctx context.Context, m Manifest, t Target, r
 	if err := assessmentMatches(m, t, r, a); err != nil {
 		return nil, err
 	}
+	if err := j.checkIssue(ctx, m.Jira.Project, m.Jira.IssueTypeID, r.JiraKey); err != nil {
+		return nil, err
+	}
 	comments, err := api.ListCommentsComplete(ctx, r.JiraKey, 1000)
 	if err != nil {
 		return nil, errors.New("assessment comment reconciliation incomplete")
@@ -93,6 +96,9 @@ func (j JiraTracker) PublishAssessment(ctx context.Context, m Manifest, t Target
 	if err := assessmentMatches(m, t, r, a); err != nil {
 		return AssessmentPublicationReceipt{}, err
 	}
+	if err := j.checkIssue(ctx, m.Jira.Project, m.Jira.IssueTypeID, r.JiraKey); err != nil {
+		return AssessmentPublicationReceipt{}, err
+	}
 	bound := assessmentBinding(m, t, r, a)
 	comment, err := api.CreateJournalComment(ctx, r.JiraKey, assessmentBody(m, t, r, a), []jira.CommentProperty{{Key: AssessmentProperty, Value: marshal(bound)}})
 	if err != nil || comment == nil || comment.ID == "" {
@@ -107,6 +113,9 @@ func (j JiraTracker) VerifyAssessment(ctx context.Context, m Manifest, t Target,
 	}
 	if assessmentMatches(m, t, r, a) != nil || receipt.JiraKey != r.JiraKey || receipt.CommentID == "" || receipt.Binding != Hash(assessmentBinding(m, t, r, a)) {
 		return errors.New("assessment publication binding mismatch")
+	}
+	if err := j.checkIssue(ctx, m.Jira.Project, m.Jira.IssueTypeID, r.JiraKey); err != nil {
+		return err
 	}
 	comment, err := api.GetCommentWithProperties(ctx, receipt.JiraKey, receipt.CommentID)
 	if err != nil || comment == nil || comment.ID != receipt.CommentID {
