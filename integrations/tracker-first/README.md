@@ -1,0 +1,85 @@
+# Tracker-first saga integration
+
+This fork implements ADRs 0165–0167 without depending on upstream acceptance.
+Fullsend remains a single-target runner. The separate adapter creates branch
+investigations, checkpoints progress in a GitLab control repository, and
+reconciles scheduling and validated assessment receipts.
+
+Build from the reviewed fork commit, stamping the real source revision:
+
+```sh
+fullsend_revision=$(git rev-parse HEAD)
+go build -ldflags "-X github.com/fullsend-ai/fullsend/internal/cli.commitSHA=$fullsend_revision" \
+  -o /private/bin/fullsend ./cmd/fullsend
+go build -o /private/bin/tracker-intake ./cmd/tracker-intake
+```
+
+A development binary without the expected revision stamp is refused by the
+protected worker profile. Pin the resulting binary SHA256 in the control job.
+The host image needs the normal Fullsend/OpenShell runtime, Python 3 and Git;
+select it by immutable digest. No Pi image patch is needed: the pinned Pi CLI
+already refuses duplicate registrations, and Fullsend adds strict native-name
+selection and vetted-source checks. Native-tool children are explicitly refused.
+
+Install the [GitLab template](gitlab-ci.yml) and [worker wrapper](worker.py) in a
+reviewed protected control ref. Treat it as a separate configuration from an
+existing managed Fullsend pipeline. The template's three typed inputs are
+scheduling data, not authorization. The worker validates their journal admission
+before fetching source. Do not install a configuration that can let input values
+replace protected profiles or role credentials.
+
+Provision a separate protected journal branch and explicit JSON initialization,
+then supply the administrator-controlled host profiles and registered-role
+credentials. See the [journal command](../../docs/cli/journal.md),
+[worker command](../../docs/cli/tracker-worker.md) and
+[adapter guide](../../docs/guides/user/tracker-first-intake.md) for exact fields.
+Keep real site addresses, project identifiers and credential values out of this
+repository. Existing Jira and model authentication requirements still apply.
+
+Each worker profile must provide a pinned local evidence validator. The ordinary
+publishing post-script is disabled. Validate the canonical assessment output,
+not a model-authored verdict file, and return the bound structured receipt.
+The controller reports uncertain, failed, missing or exhausted targets without
+inventing an affected verdict or permitting remediation. A human retains coding,
+merge and issue-closure decisions.
+
+Run one adapter cycle after reviewing the explicit manifest:
+
+```sh
+/private/bin/tracker-intake --manifest /trusted/manifest.json --check
+/private/bin/tracker-intake --manifest /trusted/manifest.json --owner cycle-unique-id
+```
+
+The template includes a protected schedule named `trackerflow reconcile` for
+subsequent controller cycles. Supply `FULLSEND_TRACKER_INTAKE_BINARY`, its
+`FULLSEND_TRACKER_INTAKE_SHA256`, and the reviewed `FULLSEND_TRACKER_MANIFEST`
+path. Worker pipelines remain API-only. The
+`after_script` can finalize retained evidence without inference, but runner loss
+can prevent cleanup entirely. Ambiguous external creates/submissions stay held
+until a verified receipt or operator resolution establishes their outcome.
+
+Local verification:
+
+```sh
+go test ./...
+go test -race ./internal/journal ./internal/journalhost ./internal/trackerflow ./internal/trackerworker
+node --test internal/runtime/pi_extension/fullsend-tools.test.mjs
+python3 -m unittest discover -s integrations/tracker-first -p 'test_*.py'
+```
+
+Synthetic transports and offline Pi startup tests do not establish hosted
+GitLab concurrency, Jira publication, model accuracy or source applicability.
+Run those acceptance checks in the authorized control project with controlled
+source branches before treating the deployment as accepted.
+
+After explicitly initializing a disposable protected journal, test the real
+GitLab backend before enabling case dispatch:
+
+```sh
+python3 integrations/tracker-first/check_hosted_journal.py \
+  --fullsend /private/bin/fullsend
+```
+
+This creates and retains labeled conformance records, races two owners and
+checks fencing plus retained budgets/pending effects. It makes no Jira writes
+or model calls. It is one hosted storage check, not complete saga acceptance.

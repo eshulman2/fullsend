@@ -2265,3 +2265,20 @@ test("childArgs fails closed without manifest resource permissions", () => {
   assert.throws(() => childArgs({}, {seq: 1, modelSpec: "m", tools: ["read"]}),
     /missing MCP resource permissions/);
 });
+
+
+test("run refuses native child tools instead of silently omitting vetted code", async () => {
+  const { manifest } = fixture();
+  manifest.agent.tools = ["cve"];
+  manifest.agent.nativeTools = ["cve"];
+  const tool = createAgentTool(manifest, { ...quiet, spawn: () => { assert.fail("native child must not spawn"); } });
+  const result = await tool.run({ prompt: "assess" }, { parentModel: "anthropic-vertex/claude-opus-4-6" });
+  assert.equal(result.isError, true);
+  assert.match(result.error, /native extension tools are unsupported in child runs/);
+});
+
+test("native child tools also fail closed at launch after active-tool drift", () => {
+  const { manifest } = fixture();
+  manifest.agent.nativeTools = ["cve"];
+  assert.throws(() => childArgs(manifest.agent, {seq: 1, modelSpec: "m", tools: ["cve"]}), /native extension tools are unsupported/);
+});

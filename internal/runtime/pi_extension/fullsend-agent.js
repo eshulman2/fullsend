@@ -513,6 +513,9 @@ function resourcePermissionsError(agent) {
 // session dir becomes "sessions/<persona>-<seq>" instead of
 // "sessions/agent-<seq>" so transcripts are labelled by persona (#7031).
 export function childArgs(agent, { seq, modelSpec, tools, activeTools = tools, personaName }) {
+  if (tools.some((name) => (agent.nativeTools ?? []).includes(name))) {
+    throw new Error("native extension tools are unsupported in child runs; refusing selection");
+  }
   const args = [
     "--print", "--mode", "json", "--no-approve", "--no-extensions", "--no-prompt-templates", "--no-themes",
     "--session-dir", childSessionDir(agent, seq, personaName),
@@ -1218,6 +1221,9 @@ export function createAgentTool(manifest, { spawn = nodeSpawn, log: rawLog = (m)
     };
     let early = cancelled();
     if (early) return early;
+    if (childLoadout(params?.subagent_type).tools.some((name) => (agent.nativeTools ?? []).includes(name))) {
+      return { seq: id, isError: true, error: "native extension tools are unsupported in child runs; refusing selection", text: "", stopReason: "rejected", model: modelSpec };
+    }
     // The ticket carries the queue entry (before a slot is free) and then
     // the running child, so an abort reaches whichever stage the dispatch
     // is in. The listener is removed on every exit path.

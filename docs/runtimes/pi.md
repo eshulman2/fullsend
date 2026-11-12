@@ -307,7 +307,7 @@ What a local pi run needs, beyond the guide:
 | `MultiEdit` | `edit` | pi has one edit tool |
 | `Glob` | `find` | `find` takes a **glob pattern**, not a bare directory. A model that means "list this directory" and sends `{"path": "docs/"}` gets a validation error and has to retry |
 | `LS` | `ls` | The tool to grant for directory listing. Claude Code itself dropped `LS`, so the entry does nothing on that runtime, and codex lists through the shell — it is pi where it counts |
-| anything else | — | A persona naming a Claude-only tool (`WebFetch`, `TodoWrite`, ...) fails rather than silently losing it; see [Sub-agents troubleshooting](#troubleshooting-sub-agents) |
+| Exact extension name, such as `cve` | Same native name | Resolves only against vetted extensions; missing or ambiguous tools stop the run before inference. Native extension tools are not supported in child runs |
 
 So an agent that browses the tree wants `Glob` **and** `LS`: `Glob` to match a pattern, `LS` to see
 what is in a directory. With `Glob` alone the model tends to reach for a listing it cannot make.
@@ -383,10 +383,31 @@ runtime, an interpreter, a proxy or a credential are refused; the deny-list is i
 
 ### Extension tools and `tools:`
 
-An agent that declares `tools:` keeps its strict `--tools` allowlist and pi hides extension tools
-under it — that is what a declared `tools:` means. An agent whose `tools:` maps to nothing pi
-provides gets `--no-builtin-tools`, and its extensions still load: `-e` is independent of `--tools`.
-An agent without `tools:` gets pi's default set plus whatever its extensions register.
+An agent can select an exact native tool supplied by a vetted extension:
+
+```yaml
+# agent frontmatter
+tools: [cve]
+```
+
+Keep `tools:` at the top level of the frontmatter. Built-in Claude names keep
+existing translations. An otherwise unmapped exact name must resolve to a
+registered tool from one of the harness's vetted Pi extensions. Missing tools,
+duplicate registrations and non-vetted sources stop before inference; native
+wildcards are not supported. The pinned Pi print CLI rejects extension conflict
+diagnostics, and the runner-owned selector verifies the loaded registry and
+sets the exact active tool set before a model turn. It is loaded after declared
+extensions and hash-checked before every attempt.
+
+An explicit empty `tools: []` selects no built-in or extension tools. An agent
+without `tools:` keeps the existing default set plus extension tools. Hook
+checks retain the canonical native name. Selecting `cve` grants no additional
+Bash, filesystem, network or publication permission.
+
+Native tools currently run only in the parent. A child selection requiring a
+native extension tool is refused; the child launcher does not silently omit
+the requested extension or inherit broader tools. Child builtin selections
+remain the intersection of parent and persona permissions.
 
 MCP tool names such as `mcp__docs__search` and patterns such as
 `mcp__docs__*` pass through the pi tool mapping. A bare server selector

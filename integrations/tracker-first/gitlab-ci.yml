@@ -1,0 +1,66 @@
+spec:
+  inputs:
+    operation_id:
+      default: ''
+      regex: '^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$|^$'
+    request_digest:
+      default: ''
+      regex: '^[a-f0-9]{64}$|^$'
+    request_b64:
+      default: ''
+      regex: '^[A-Za-z0-9+/=]{0,16000}$'
+---
+# Install this as a separate reviewed control-project configuration. The project
+# must supply protected profiles, registered-role credentials and pinned binaries.
+# It does not replace a project's existing Fullsend event/poll configuration.
+workflow:
+  name: 'trackerflow-$[[ inputs.operation_id ]]-$[[ inputs.request_digest ]]'
+  rules:
+    - if: '$CI_DEBUG_TRACE =~ /^(1|t|true)$/i'
+      when: never
+    - if: '$CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "api"'
+    - if: '$CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "schedule" && $CI_PIPELINE_SCHEDULE_DESCRIPTION == "trackerflow reconcile"'
+    - when: never
+
+stages: [assess]
+tracker-assessment:
+  stage: assess
+  image:
+    name: '$FULLSEND_TRACKER_RUNNER_IMAGE'
+    entrypoint: ['']
+  tags: ['fullsend-gitlab-runner']
+  timeout: 30m
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "api" && $TRACKER_OPERATION_ID != ""'
+  variables:
+    TRACKER_OPERATION_ID:
+      value: $[[ inputs.operation_id ]]
+      expand: false
+    TRACKER_REQUEST_DIGEST:
+      value: $[[ inputs.request_digest ]]
+      expand: false
+    TRACKER_REQUEST_B64:
+      value: $[[ inputs.request_b64 ]]
+      expand: false
+  before_script:
+    - if [ -f "$CI_PROJECT_DIR/.gitlab/ci/scripts/trust-ci-server-ca.sh" ]; then . "$CI_PROJECT_DIR/.gitlab/ci/scripts/trust-ci-server-ca.sh"; fi
+  script:
+    - python3 "$CI_PROJECT_DIR/integrations/tracker-first/worker.py"
+  after_script:
+    # Finalization only consumes an existing validated host receipt. It never
+    # repeats inference, guesses an assessment, or promises to run after host loss.
+    - python3 "$CI_PROJECT_DIR/integrations/tracker-first/worker.py" --finalize-only
+
+tracker-reconcile:
+  stage: assess
+  image:
+    name: '$FULLSEND_TRACKER_RUNNER_IMAGE'
+    entrypoint: ['']
+  tags: ['fullsend-gitlab-runner']
+  timeout: 10m
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $CI_PIPELINE_SCHEDULE_DESCRIPTION == "trackerflow reconcile"'
+  before_script:
+    - if [ -f "$CI_PROJECT_DIR/.gitlab/ci/scripts/trust-ci-server-ca.sh" ]; then . "$CI_PROJECT_DIR/.gitlab/ci/scripts/trust-ci-server-ca.sh"; fi
+  script:
+    - python3 "$CI_PROJECT_DIR/integrations/tracker-first/controller.py"

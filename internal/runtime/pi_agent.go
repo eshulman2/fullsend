@@ -185,7 +185,7 @@ func parseClaudeToolSpecs(specs []string) (tools, bashAllowlist []string) {
 // read, bash, edit, write, grep, find, ls — every non-Windows built-in; pi
 // also has powershell — all activated via settings.json defaultTools, since
 // pi alone starts with only the first four). Claude tools without a pi
-// counterpart are reported as unsupported; Skill maps to no tool (pi's
+// counterpart are resolved as exact native extension selections; Skill maps to no tool (pi's
 // skills are prompt-driven), and Bootstrap adds read for it, since pi only
 // emits the skills section of the system prompt when read is active.
 var piToolForClaude = map[string]string{
@@ -311,8 +311,13 @@ func piToolsFor(claudeTools []string) (tools, unsupported []string) {
 		}
 		pt, ok := piToolForClaude[ct]
 		if !ok {
-			unsupported = append(unsupported, ct)
-			continue
+			// Exact native extension names are resolved against the vetted
+			// registry before inference, never silently dropped or globbed.
+			if !piIsNativeToolName(ct) {
+				unsupported = append(unsupported, ct)
+				continue
+			}
+			pt = ct
 		}
 		if !seen[pt] {
 			seen[pt] = true
@@ -320,4 +325,33 @@ func piToolsFor(claudeTools []string) (tools, unsupported []string) {
 		}
 	}
 	return tools, unsupported
+}
+
+// Exact names only: no wildcards, namespace patterns or CLI list separators.
+var piExactNativeTool = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
+
+// MCP namespaces and pi built-ins are never reclassified as native tools.
+func piIsNativeToolName(name string) bool {
+	if !piExactNativeTool.MatchString(name) || strings.HasPrefix(name, "mcp__") || strings.HasPrefix(name, "list_mcp_") || strings.HasPrefix(name, "read_mcp_") {
+		return false
+	}
+	for _, mapped := range piToolForClaude {
+		if name == mapped {
+			return false
+		}
+	}
+	return true
+}
+
+func piNativeToolsFor(specs []string) []string {
+	var out []string
+	for _, name := range specs {
+		if _, builtin := piToolForClaude[name]; builtin || name == "Skill" || name == piAgentToolName || name == piAgentToolAlias || name == "ListMcpResourcesTool" || name == "ReadMcpResourceTool" || piMCPResourcePattern(name) || strings.HasPrefix(name, "mcp__") {
+			continue
+		}
+		if piIsNativeToolName(name) && !hasTool(out, name) {
+			out = append(out, name)
+		}
+	}
+	return out
 }

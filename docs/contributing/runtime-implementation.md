@@ -1018,6 +1018,25 @@ extension's own settings are untouched by any of it.
 (`Plugin "<name>": skipped — the <runtime> runtime does not load pi extensions (see docs/runtimes.md)`)
 rather than dropping the list silently, the mirror of pi's `plugins:` warning.
 
+### Exact native Pi tools
+
+For an explicit agent tool list, Bootstrap writes `strictTools: true`, the
+translated `tools` list and the otherwise unmapped exact `nativeTools` names
+into the manifest. It uploads runner-owned `fullsend-tools.js`. Run verifies
+that selector against its embedded hash before every attempt and loads it
+last, after vetted declared extensions. Pinned Pi print mode rejects extension
+conflict diagnostics before startup. The selector checks each native tool's
+registry source against the vetted extension directories, rejects missing or
+non-vetted tools, and sets the exact active list on session startup and before
+each model turn. `tools: []` uses `--tools ''`, hiding extension tools as well
+as builtins. The selector's tool-call gate uses the same canonical names as
+the hook adapter. Exit 92 reports selector integrity or selection failure.
+
+The `agent.nativeTools` field records native parent permissions that cannot
+currently be loaded safely in children. Such child selections are refused;
+native personas are rejected during discovery. Builtin children retain their
+parent/persona intersection. No native-tool wildcard semantics are added.
+
 ### Claude-on-Vertex via a fullsend-owned extension
 
 pi's `google-vertex` provider is Gemini-only and upstream's `anthropic-vertex` provider (earendil-works/pi#5262) is still an open PR, so the sandbox image vendors [`fullsend-ai/pi-anthropic-vertex`](https://github.com/fullsend-ai/pi-anthropic-vertex) under `/usr/local/share/pi-extensions/anthropic-vertex`, pinned by tag + tarball SHA256 (`PI_ANTHROPIC_VERTEX_VERSION`/`_SHA256`). pi never auto-loads it; `Run` passes it with `-e` for the `anthropic-vertex` provider (`runtime.piVertexExtensionPath`).

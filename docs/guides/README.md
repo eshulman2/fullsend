@@ -46,6 +46,7 @@ Guides for developers working in repositories where fullsend is active.
 - [OWNERS file authorization](user/owners-file-authorization.md) — Authorize agent dispatch via Prow-style OWNERS files
 - [Running agents locally](user/running-agents-locally.md) — Run fullsend agents on your machine using released binaries (macOS + Linux)
 - [Tightening command scanning](user/tightening-command-scanning.md) — Commit a `.tirith/policy.yaml` to make sandbox command scanning stricter for your repository
+- [Tracker-first branch intake](user/tracker-first-intake.md) — Run journal-backed branch investigations through ordinary single-target workers
 
 ### Customizing agents
 

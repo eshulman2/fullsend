@@ -53,3 +53,21 @@ When the resource can be reached from more than one repo (for example fork-based
 - an ownership check whose result does not actually gate every subsequent related operation on that resource (check computed but not enforced)
 - a predictable-name occupancy check that matches by branch name and author without comparing repo identity (`owner/repo`)
 - a fail-closed skip that returns success (nil error) to a caller that treats nil as "delivered"
+
+## Conditional journal files
+
+`forge.Client.ReadVersionedFile` reads the complete file and its last-modifying
+revision. `WriteFileIfRevision` replaces that file once only if the supplied
+revision still matches. An empty revision permits creation only when the file
+is absent. GitLab implements the pair using its file `last_commit_id` guard;
+GitHub control-journal storage returns `ErrNotSupported` until conformance is
+implemented. This does not restrict source repositories to GitLab.
+
+The journal keeps all ownership, budgets and effect receipts in one JSON file,
+so its conditional replacement is the complete transaction. A branch-tip read
+followed by an unconditional write is not equivalent. Callers authorize the
+control repository, branch and path before reading or writing; forge methods
+remain transport adapters. Journal checksums detect corruption, not writer
+authenticity; protected control storage and host authorization supply that
+boundary. A failed or ambiguous write must not be retried
+blindly by the transport.

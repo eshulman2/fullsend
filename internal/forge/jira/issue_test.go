@@ -182,3 +182,23 @@ func TestCreateIssue_DescriptionTooLarge(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ADF")
 }
+
+func TestCreateIssue_AtomicProvenance(t *testing.T) {
+	t.Parallel()
+	client, mux := setupTest(t)
+	mux.HandleFunc("/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
+		var got struct {
+			Fields     map[string]any    `json:"fields"`
+			Properties []CommentProperty `json:"properties"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&got))
+		assert.Equal(t, []any{"stable-marker"}, got.Fields["labels"])
+		assert.Equal(t, map[string]any{"accountId": "account-1"}, got.Fields["assignee"])
+		require.Len(t, got.Properties, 1)
+		assert.Equal(t, "fullsend.intake", got.Properties[0].Key)
+		assert.JSONEq(t, `{"target":"release-1"}`, string(got.Properties[0].Value))
+		writeJSON(t, w, http.StatusCreated, CreatedIssue{ID: "100", Key: "PROJ-1"})
+	})
+	_, err := client.CreateIssue(context.Background(), CreateIssueInput{ProjectKey: "PROJ", IssueType: "10003", Summary: "Investigate", Labels: []string{"stable-marker"}, AssigneeAccountID: "account-1", Properties: []CommentProperty{{Key: "fullsend.intake", Value: json.RawMessage(`{"target":"release-1"}`)}}})
+	require.NoError(t, err)
+}
