@@ -200,6 +200,9 @@ const ForceCommitFixedBaseSHA = "0000000000000000000000000000000000000001"
 // Pre-populate its fields to control return values, and inspect
 // recorder slices after the test to verify which calls were made.
 type FakeClient struct {
+	versionedFileRevisions map[string]string
+	versionedFileSequence  uint64
+
 	mu sync.Mutex
 
 	// Pre-populated data

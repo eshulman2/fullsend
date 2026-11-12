@@ -879,6 +879,10 @@ func fakeClientCalls(ctx context.Context) map[string]func(fc *FakeClient) []any 
 			return pack(fc.ListDirectoryContents(ctx, "o", "r", "p", "main", false))
 		},
 		"ListRepositoryFiles": func(fc *FakeClient) []any { return pack(fc.ListRepositoryFiles(ctx, "o", "r")) },
+		"ReadVersionedFile":   func(fc *FakeClient) []any { return pack(fc.ReadVersionedFile(ctx, "o", "r", "b", "p")) },
+		"WriteFileIfRevision": func(fc *FakeClient) []any {
+			return pack(fc.WriteFileIfRevision(ctx, "o", "r", "b", "p", "", "m", []byte("c")))
+		},
 		"GetFileContentAtRef": func(fc *FakeClient) []any { return pack(fc.GetFileContentAtRef(ctx, "o", "r", "p", "main")) },
 		"CommitFiles": func(fc *FakeClient) []any {
 			return pack(fc.CommitFiles(ctx, "o", "r", "m", []TreeFile{{Path: "p", Content: []byte("c"), Mode: "100644"}}))

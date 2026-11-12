@@ -1002,6 +1002,25 @@ extension's own settings are untouched by any of it.
 (`Plugin "<name>": skipped — the <runtime> runtime does not load pi extensions (see docs/runtimes.md)`)
 rather than dropping the list silently, the mirror of pi's `plugins:` warning.
 
+### Exact native Pi tools
+
+For an explicit agent tool list, Bootstrap writes `strictTools: true`, the
+translated `tools` list and the otherwise unmapped exact `nativeTools` names
+into the manifest. It uploads runner-owned `fullsend-tools.js`. Run verifies
+that selector against its embedded hash before every attempt and loads it
+last, after vetted declared extensions. Pinned Pi print mode rejects extension
+conflict diagnostics before startup. The selector checks each native tool's
+registry source against the vetted extension directories, rejects missing or
+non-vetted tools, and sets the exact active list on session startup and before
+each model turn. `tools: []` uses `--tools ''`, hiding extension tools as well
+as builtins. The selector's tool-call gate uses the same canonical names as
+the hook adapter. Exit 92 reports selector integrity or selection failure.
+
+The `agent.nativeTools` field records native parent permissions that cannot
+currently be loaded safely in children. Such child selections are refused;
+native personas are rejected during discovery. Builtin children retain their
+parent/persona intersection. No native-tool wildcard semantics are added.
+
 ### Claude-on-Vertex via a fullsend-owned extension
 
 pi's `google-vertex` provider is Gemini-only and upstream's `anthropic-vertex` provider (earendil-works/pi#5262) is still an open PR, so the sandbox image vendors [`fullsend-ai/pi-anthropic-vertex`](https://github.com/fullsend-ai/pi-anthropic-vertex) under `/usr/local/share/pi-extensions/anthropic-vertex`, pinned by tag + tarball SHA256 (`PI_ANTHROPIC_VERTEX_VERSION`/`_SHA256`). pi never auto-loads it; `Run` passes it with `-e` for the `anthropic-vertex` provider (`runtime.piVertexExtensionPath`).
@@ -1065,7 +1084,7 @@ with `-e`, after the hook adapter — when the agent definition has no `tools:` 
 | `models` | `default` (the agent's model, translated) plus the Claude aliases on the Anthropic Vertex provider. The extension resolves a call's `model` through this table and **rejects** anything it cannot serve |
 | `providerModels` | Per provider a run can serve with no `models` entry, the model ids it can serve: `google-vertex` verbatim from the catalog the pinned pi bundles (`@earendil-works/pi-ai` `dist/providers/data/google-vertex.json`), and `xai-vertex` from the ids the vendored extension registers (`xai/grok-4.6`, the publisher-qualified wire form). `openai` is present only when the run-scoped OpenAI provider is attached, listing the ids that configured children resolve to (`subagents.<persona>`, `subagents.default`, a persona's frontmatter `model:`; `runtime.OpenAIChildren`), and its presence is what lets a non-openai parent dispatch to `openai` and turns on the OpenAI launch safeguards for the children (#7981). `gateway` is present only when a gateway run is registered, listing the ids of the rendered `inference-gateway.json`; it admits the `gateway` provider under any parent, since the extension's `-e` directory (`inference-gateway`) does not name the provider id (#8280). A `provider/id` call is accepted only when the full spec is in `models`, is the parent's own spec, or is listed here — a provider prefix alone is not enough, or an invented id would reach the API. A Grok spec is normalized to `xai-vertex/xai/<id>` first, exactly as `normalizeXaiVertexModel` does for the parent, and then goes through this same set |
 | `thinking` | Children's `--thinking`; `FULLSEND_PI_SUBAGENT_THINKING` (validated) else `medium` |
-| `tools` / `exploreTools` | The child `--tools` allowlist: the parent's built-ins minus `Agent`/`Task`, or — for `subagent_type: Explore` — the read-only set **intersected with** the parent's, so a child never reaches past its parent. An empty result becomes `--no-builtin-tools`, as it does for the parent |
+| `tools` / `exploreTools` | The child `--tools` allowlist: the parent's built-ins minus `Agent`/`Task`, or — for `subagent_type: Explore` — the read-only set **intersected with** the parent's, so a child never reaches past its parent. An empty result becomes `--tools ''`, excluding builtin and extension tools as it does for the parent |
 | `personas` | Per-persona model/tools table, keyed by persona name. Present when `sub-agents/*.md` files were discovered under skill roots. The extension dispatches a `subagent_type` that names a persona using its resolved model and tool set; an unknown non-empty type is rejected when personas are registered. Model resolution: repo `subagents.<persona>` > frontmatter `model:` > `subagents.default` > the parent's live model. An entry carries **no** `model` for that last case, so the extension inherits the parent the same way an anonymous child does — writing the agent definition's model here instead would split the two apart whenever config or a flag overrode the parent. A persona's `tools` are intersected with the parent's at dispatch; a present-but-empty array means no tools, and Bootstrap refuses such a persona rather than letting it fall back to the parent's set. Each spec is canonicalised and checked against the trusted set before it enters the manifest, so a persona never widens the set that admits it (#7031) |
 | `subagentDefault` | The canonicalised `agents[].subagents.default` spec, carried separately from `personas` because it applies to children that name **no** persona — `retro` dispatches nothing else. It fills an empty `model` argument and outranks the parent's live model; an explicit argument still wins. A registered persona never reads it: its own frontmatter model comes first (#7031) |
 | `skippedPersonas` | Persona files that did not register, by name, with the reason. A dispatch naming one is rejected with that reason rather than run as an anonymous child (#7031) |

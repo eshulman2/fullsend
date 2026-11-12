@@ -478,11 +478,9 @@ export function childArgs(agent, { seq, modelSpec, tools, personaName }) {
     args.push("-e", agent.editRepairExtension);
   }
   if (tools.length === 0) {
-    // Mirror the runner: an empty allowlist means "no built-in tools", not
-    // "the default set". `--tools ''` and `--no-tools` drop extension tools
-    // too; --no-builtin-tools keeps them, which is the behaviour the
-    // edit-repair gate above compensates for (all three measured on 0.85.0).
-    args.push("--no-builtin-tools");
+    // Match the parent: explicit empty selection excludes extension tools
+    // too, while --no-builtin-tools would still activate registered tools.
+    args.push("--tools", "");
   } else {
     args.push("--tools", tools.join(","));
   }
@@ -1141,6 +1139,9 @@ export function createAgentTool(manifest, { spawn = nodeSpawn, log: rawLog = (m)
     let early = cancelled();
     if (early) return early;
     const tools = childTools(agent, params?.subagent_type);
+    if (tools.some((name) => (agent.nativeTools ?? []).includes(name))) {
+      return { seq: id, isError: true, error: "native extension tools are unsupported in child runs; refusing selection", text: "", stopReason: "rejected", model: modelSpec };
+    }
     // The ticket carries the queue entry (before a slot is free) and then
     // the running child, so an abort reaches whichever stage the dispatch
     // is in. The listener is removed on every exit path.

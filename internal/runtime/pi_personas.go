@@ -459,9 +459,12 @@ func piChildSpecResolver(modelsTable map[string]string, modelFallbacks map[strin
 // the same rule so a persona that will not register never counts.
 func piPersonaTools(claudeTools []string) (filtered, unsupported []string) {
 	piTools, unsupported := piToolsFor(claudeTools)
+	// The child launch does not carry native extension code. Refuse such
+	// personas instead of running them without the requested tool.
+	unsupported = append(unsupported, piNativeToolsFor(claudeTools)...)
 	filtered = make([]string, 0, len(piTools))
 	for _, t := range piTools {
-		if t != piAgentToolName && t != piAgentToolAlias {
+		if t != piAgentToolName && t != piAgentToolAlias && !hasTool(unsupported, t) {
 			filtered = append(filtered, t)
 		}
 	}

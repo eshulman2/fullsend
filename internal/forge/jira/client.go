@@ -637,6 +637,12 @@ type CreateIssueInput struct {
 	ParentKey string
 	// Summary is the issue title.
 	Summary string
+	// Labels and Properties are included in the original create request so a
+	// recovery marker cannot be lost between creation and a later update.
+	Labels     []string
+	Properties []CommentProperty
+	// AssigneeAccountID is an optional Jira Cloud account identity.
+	AssigneeAccountID string
 	// Description is markdown; it is converted to ADF before being sent.
 	// An empty description is omitted from the request.
 	Description string
@@ -678,7 +684,17 @@ func (c *LiveClient) CreateIssue(ctx context.Context, in CreateIssueInput) (*Cre
 		}
 		fields["description"] = adf
 	}
-	reqBody, err := json.Marshal(map[string]any{"fields": fields})
+	if len(in.Labels) > 0 {
+		fields["labels"] = in.Labels
+	}
+	if in.AssigneeAccountID != "" {
+		fields["assignee"] = map[string]string{"accountId": in.AssigneeAccountID}
+	}
+	payload := map[string]any{"fields": fields}
+	if len(in.Properties) > 0 {
+		payload["properties"] = in.Properties
+	}
+	reqBody, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal create issue request: %w", err)
 	}

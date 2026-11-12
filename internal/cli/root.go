@@ -82,6 +82,8 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newGitHubCmd())
 	cmd.AddCommand(newInferenceCmd())
 	cmd.AddCommand(newLockCmd())
+	cmd.AddCommand(newJournalCmd())
+	cmd.AddCommand(newTrackerWorkerCmd())
 	cmd.AddCommand(newMintCmd())
 	cmd.AddCommand(newFetchSkillCmd())
 	cmd.AddCommand(newDispatchCmd())

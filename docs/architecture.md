@@ -1286,3 +1286,20 @@ Installation is driven entirely by the `fullsend` CLI (`fullsend github setup`,
 `fullsend repos`). This is unrelated to the **public mint** Worker, which is a separate
 deployment provisioned from `internal/dispatch/cf/` and served at `mint.fullsend.sh`
 ([ADR 0068](ADRs/0068-public-community-mint-architecture.md)).
+
+## Work recovery and tracker-first execution
+
+[ADR 0165](ADRs/0165-recover-work-through-repository-owned-operation-journals.md)
+uses versioned JSON in the control repository, initially GitLab, with conditional
+updates, ownership generations and separate effect receipts. Shared trusted
+script operations and reconciliation recover work when CI cleanup never ran.
+Source forge and tracker remain independent of journal storage.
+
+[ADR 0166](ADRs/0166-select-pi-extension-tools-without-widening-access.md)
+selects exact native Pi tools from vetted resources without broadening builtin
+or extension access. Unsupported native child selections are refused.
+
+[ADR 0167](ADRs/0167-use-tracker-first-dispatch.md) uses one investigation tracker
+per maintained target and ordinary single-target workers. The domain adapter
+owns target mapping, persistent bounds and complete accounting; it introduces
+no native multi-target plan interface into the Fullsend runner.

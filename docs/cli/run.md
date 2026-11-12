@@ -560,3 +560,8 @@ Set one or the other; both set is an error. `fullsend run` removes both variable
 - [Running Agents Locally](../guides/user/running-agents-locally.md) for a step-by-step walkthrough
 - [Runtimes](../runtimes.md) for runtime selection and capabilities
 - [CLI internals](../guides/dev/cli-internals.md) for the full command tree
+
+For an admitted tracker-first assessment, use
+[fullsend tracker-worker](tracker-worker.md). That wrapper invokes ordinary
+single-target execution with publishing post-scripts disabled, then validates
+local evidence against current saga and source bindings before acceptance.

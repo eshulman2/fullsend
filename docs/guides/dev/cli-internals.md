@@ -6,6 +6,8 @@ This guide provides implementation details for fullsend CLI internals: command s
 
 ```
 fullsend
+├── journal          <operation>              # Conditional saga checkpoints in protected control storage
+├── tracker-worker                           # One admitted branch; inference and local evidence validation
 ├── admin                                    # Manage fullsend installation for a repository
 │   ├── install      <owner/repo>            # Deprecated: use inference provision + github setup / repos install (GitLab)
 │   └── foreign                              # Cross-org mint authorization (FULLSEND_FOREIGN_<ROLE>_REPOS)

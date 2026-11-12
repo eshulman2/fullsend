@@ -147,8 +147,8 @@ func TestPiToolsFor(t *testing.T) {
 	assert.Nil(t, unsupported)
 
 	tools, unsupported = piToolsFor([]string{"Read", "Edit", "MultiEdit", "Glob", "WebFetch", "Task", "LS"})
-	assert.Equal(t, []string{"read", "edit", "find", "Agent", "Task", "ls"}, tools, "Task is the legacy alias of Agent; both pi tool names are activated, in place")
-	assert.Equal(t, []string{"WebFetch"}, unsupported)
+	assert.Equal(t, []string{"read", "edit", "find", "WebFetch", "Agent", "Task", "ls"}, tools, "Task is the legacy alias of Agent; both pi tool names are activated, in place")
+	assert.Nil(t, unsupported, "exact native names are resolved after vetted extensions load")
 
 	tools, unsupported = piToolsFor([]string{"Agent", "Task", "Bash"})
 	assert.Equal(t, []string{"Agent", "Task", "bash"}, tools, "Agent and Task activate the same pair once")
