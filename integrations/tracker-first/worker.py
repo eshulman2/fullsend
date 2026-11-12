@@ -82,13 +82,18 @@ def main():
         actual_binary = hashlib.file_digest(stream, "sha256").hexdigest()
     if actual_binary != expected_binary:
         raise ValueError("Fullsend binary integrity mismatch")
-    raw = base64.b64decode(os.environ["TRACKER_REQUEST_B64"], validate=True)
+    encoded = os.environ["TRACKER_REQUEST_B64"]
+    if len(encoded) > 16384:
+        raise ValueError("encoded request exceeds bound")
+    raw = base64.b64decode(encoded, validate=True)
     if len(raw) > 12288:
         raise ValueError("request exceeds bound")
     # Preserve the exact canonical bytes used by trackerflow.Request.Digest().
     if hashlib.sha256(raw).hexdigest() != os.environ["TRACKER_REQUEST_DIGEST"]:
         raise ValueError("request digest mismatch")
     request = json.loads(raw)
+    if not isinstance(request, dict):
+        raise ValueError("structured request required")
     operation = request["operation_id"]
     if operation != os.environ["TRACKER_OPERATION_ID"] or not re.fullmatch(
         "[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", operation

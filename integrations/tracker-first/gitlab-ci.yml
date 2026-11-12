@@ -8,7 +8,7 @@ spec:
       regex: '^[a-f0-9]{64}$|^$'
     request_b64:
       default: ''
-      regex: '^[A-Za-z0-9+/=]{0,16000}$'
+      regex: '^[A-Za-z0-9+/=]*$'
 ---
 # Install this as a separate reviewed control-project configuration. The project
 # must supply protected profiles, registered-role credentials and pinned binaries.
