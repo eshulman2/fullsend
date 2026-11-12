@@ -32,12 +32,7 @@ func CheckWorkerIssue(ctx context.Context, reader ParentReader, p Profile, track
 	if !ok || target.Tracker == nil || target.Tracker.Key != r.JiraKey || TargetID(r.CaseID, target.Target) != r.TargetID || target.Target.Repository != r.Repository || target.Target.Branch != r.Branch || target.Target.SourceSHA != r.SourceSHA {
 		return journal.ErrBinding
 	}
-	allowed := false
-	for _, id := range p.AllowedTargetIDs {
-		if id == r.TargetID {
-			allowed = true
-		}
-	}
+	allowed := p.allowsTarget(r.CaseID, target.Target)
 	required := false
 	for _, id := range state.Required {
 		if id == r.TargetID {

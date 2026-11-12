@@ -24,7 +24,8 @@ read it from a source checkout, Jira issue or model output. Its fields are:
 | --- | --- |
 | `policy_digest`, `profile_digest` | Exact policy identity and canonical worker-profile digest |
 | `agent` | Allowed ordinary single-target agent |
-| `allowed_target_ids` | Exact stable target IDs printed by the manifest check |
+| `allowed_target_ids` | Legacy case-specific target IDs; choose this or scopes, never both |
+| `allowed_target_scopes` | Exact repository, branch, component, product, release, stream and owner tuples, independent of case IDs |
 | `jira.base_url`, optional `jira.api_url` | Jira site and scoped API gateway |
 | `jira.project`, `issue_type_id`, `assignee_account_id` | Allowed ticket destination |
 | `jira.actor_account_id` | Expected authenticated Jira writer account |
@@ -32,6 +33,15 @@ read it from a source checkout, Jira issue or model output. Its fields are:
 | `control.worker_ref` | Protected ref containing the reviewed worker wrapper |
 | `control.dispatch_role` | Registered role with `dispatch_pipeline` capability |
 | `control.lookup_since` | RFC3339 lookup boundary no later than the first dispatch |
+
+A scope authorizes a maintained mapping, not a case or a revision. Each scope
+must supply every field, use a canonical HTTPS repository, and contain no
+wildcards. Scope lists are bounded to 100 entries and reject duplicates. New
+cases within the same mapping do not require reinstalling case-derived target
+IDs. The manifest still supplies the exact source SHA, approved policy/profile
+identities, public disclosure and destination. Workers still require current
+journal admission, a matching required target/attempt, actual source identity,
+and fresh Jira provenance/intake. Scope membership alone cannot launch a worker.
 
 Use the normal `FULLSEND_JIRA_TOKEN` and optional `FULLSEND_JIRA_EMAIL`, or the
 normal Jira OAuth client credentials. Tokens never belong in the manifest.

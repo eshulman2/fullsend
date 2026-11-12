@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/fullsend-ai/fullsend/internal/forge"
 	"github.com/fullsend-ai/fullsend/internal/forge/jira"
@@ -18,13 +19,61 @@ const ProfileEnv = "FULLSEND_TRACKERFLOW_PROFILE"
 // Profile is protected administrator-controlled installation state. It must not
 // be loaded from a target checkout, manifest, model output or editable Jira issue.
 type Profile struct {
-	PolicyDigest     string         `json:"policy_digest"`
-	ProfileDigest    string         `json:"profile_digest"`
-	Agent            string         `json:"agent"`
-	AllowedTargetIDs []string       `json:"allowed_target_ids"`
-	Jira             JiraProfile    `json:"jira"`
-	Control          ControlProfile `json:"control"`
+	PolicyDigest        string         `json:"policy_digest"`
+	ProfileDigest       string         `json:"profile_digest"`
+	Agent               string         `json:"agent"`
+	AllowedTargetIDs    []string       `json:"allowed_target_ids"`
+	AllowedTargetScopes []TargetScope  `json:"allowed_target_scopes,omitempty"`
+	Jira                JiraProfile    `json:"jira"`
+	Control             ControlProfile `json:"control"`
 }
+
+// TargetScope approves an exact maintained source mapping independently of a
+// case. It never selects a source revision or supplies case admission authority.
+type TargetScope struct {
+	Repository string `json:"repository"`
+	Branch     string `json:"branch"`
+	Component  string `json:"component"`
+	Product    string `json:"product"`
+	Release    string `json:"release"`
+	Stream     string `json:"stream"`
+	Owner      string `json:"owner"`
+}
+
+func scopeFor(t Target) TargetScope {
+	return TargetScope{t.Repository, t.Branch, t.Component, t.Product, t.Release, t.Stream, t.Owner}
+}
+
+func (s TargetScope) valid() bool {
+	if !validRepository(s.Repository) || !validBranch(s.Branch) {
+		return false
+	}
+	for _, v := range []string{s.Component, s.Product, s.Release, s.Stream, s.Owner} {
+		if v == "" || len(v) > 512 || strings.ContainsAny(v, "*?[]") || strings.IndexFunc(v, func(r rune) bool { return unicode.IsControl(r) || unicode.IsSpace(r) }) >= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func (p Profile) allowsTarget(caseID string, target Target) bool {
+	if len(p.AllowedTargetIDs) > 0 && len(p.AllowedTargetScopes) > 0 {
+		return false
+	}
+	for _, id := range p.AllowedTargetIDs {
+		if id == TargetID(caseID, target) {
+			return true
+		}
+	}
+	wanted := scopeFor(target)
+	for _, scope := range p.AllowedTargetScopes {
+		if scope.valid() && scope == wanted {
+			return true
+		}
+	}
+	return false
+}
+
 type JiraProfile struct {
 	IssueControls     *IssueControls `json:"issue_controls,omitempty"`
 	BaseURL           string         `json:"base_url"`
@@ -57,7 +106,7 @@ func LoadProfile(getenv func(string) string) (Profile, error) {
 	if len(raw) == 0 || len(raw) > 32768 || strictJSON([]byte(raw), &p) != nil {
 		return p, errors.New("protected trackerflow profile required")
 	}
-	if !digest.MatchString(p.PolicyDigest) || !digest.MatchString(p.ProfileDigest) || !safeID.MatchString(p.Agent) || len(p.AllowedTargetIDs) == 0 || len(p.AllowedTargetIDs) > 100 || !validOrigin(p.Control.BaseURL) || p.Control.Owner == "" || p.Control.Repository == "" || p.Control.WorkerRef == "" || p.Control.DispatchRole == "" || p.Control.LookupSince.IsZero() || p.Jira.Project == "" || p.Jira.IssueTypeID == "" || p.Jira.AssigneeAccountID == "" || p.Jira.ActorAccountID == "" || !validOrigin(p.Jira.BaseURL) || (p.Jira.APIURL != "" && !validOrigin(p.Jira.APIURL)) {
+	if !digest.MatchString(p.PolicyDigest) || !digest.MatchString(p.ProfileDigest) || !safeID.MatchString(p.Agent) || len(p.AllowedTargetIDs)+len(p.AllowedTargetScopes) == 0 || len(p.AllowedTargetIDs)+len(p.AllowedTargetScopes) > 100 || (len(p.AllowedTargetIDs) > 0 && len(p.AllowedTargetScopes) > 0) || !validOrigin(p.Control.BaseURL) || p.Control.Owner == "" || p.Control.Repository == "" || p.Control.WorkerRef == "" || p.Control.DispatchRole == "" || p.Control.LookupSince.IsZero() || p.Jira.Project == "" || p.Jira.IssueTypeID == "" || p.Jira.AssigneeAccountID == "" || p.Jira.ActorAccountID == "" || !validOrigin(p.Jira.BaseURL) || (p.Jira.APIURL != "" && !validOrigin(p.Jira.APIURL)) {
 		return Profile{}, errors.New("invalid protected trackerflow profile")
 	}
 	if p.Jira.IssueControls != nil && p.Jira.IssueControls.Validate() != nil {
@@ -69,6 +118,13 @@ func LoadProfile(getenv func(string) string) (Profile, error) {
 			return Profile{}, errors.New("invalid target allowlist")
 		}
 		seen[id] = true
+	}
+	scopes := map[TargetScope]bool{}
+	for _, scope := range p.AllowedTargetScopes {
+		if !scope.valid() || scopes[scope] {
+			return Profile{}, errors.New("invalid target scope allowlist")
+		}
+		scopes[scope] = true
 	}
 	return p, nil
 }
@@ -103,13 +159,7 @@ func (a ProfileAuthority) Authorize(ctx context.Context, m Manifest, t Target, a
 	if e != nil || Hash(p) != Hash(a.Profile) || p.PolicyDigest != m.PolicyDigest || p.ProfileDigest != m.ProfileDigest || p.Agent != m.Agent || p.Jira.Project != m.Jira.Project || p.Jira.IssueTypeID != m.Jira.IssueTypeID || p.Jira.AssigneeAccountID != m.Jira.AssigneeAccountID {
 		return ErrAuthorization
 	}
-	found := false
-	for _, id := range p.AllowedTargetIDs {
-		if id == TargetID(m.CaseID, t) {
-			found = true
-		}
-	}
-	if !found {
+	if !p.allowsTarget(m.CaseID, t) {
 		return ErrAuthorization
 	}
 	token, e := p.Credential(a.Getenv)
