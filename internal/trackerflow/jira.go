@@ -101,6 +101,19 @@ func (j JiraTracker) Verify(ctx context.Context, m Manifest, t Target, r Tracker
 	if err = json.Unmarshal(raw, &got); err != nil || got != trackerScope(m, t) {
 		return errors.New("Jira target provenance mismatch")
 	}
+	if len(t.Intake) > 0 {
+		if err := validateIntake(m, t); err != nil {
+			return err
+		}
+		raw, err := j.Client.GetEntityProperty(ctx, r.Key, IntakeProperty)
+		if err != nil {
+			return errors.New("Jira current intake unavailable")
+		}
+		var current map[string]string
+		if DecodeStrict(raw, &current) != nil || !reflect.DeepEqual(current, t.Intake) {
+			return errors.New("Jira current intake differs from admitted target")
+		}
+	}
 	return nil
 }
 func (j JiraTracker) Create(ctx context.Context, m Manifest, t Target) (TrackerReceipt, error) {
