@@ -96,6 +96,18 @@ class WorkerAdmissionTests(unittest.TestCase):
             self.assertEqual(run.call_count, 1)
             self.assertTrue(all(call.args[0][0] != "git" for call in run.call_args_list))
 
+    def test_oversized_encoded_request_is_rejected_before_decode_or_commands(self):
+        with (
+            patch.dict(os.environ, {**self.env, "TRACKER_REQUEST_B64": "A" * 16385}, clear=True),
+            patch.object(sys, "argv", ["worker"]),
+            patch.object(WORKER.base64, "b64decode") as decode,
+            patch.object(WORKER.subprocess, "run") as run,
+            self.assertRaises(ValueError),
+        ):
+            WORKER.main()
+        decode.assert_not_called()
+        run.assert_not_called()
+
     def test_debug_or_unprotected_job_is_rejected(self):
         for change in ({"CI_DEBUG_TRACE": "true"}, {"CI_COMMIT_REF_PROTECTED": "false"}):
             with (
