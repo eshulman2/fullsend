@@ -8,7 +8,62 @@ import json
 import os
 import re
 import subprocess
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+
+
+@contextmanager
+def inference_environment(root):
+    """Use the normal GitLab Vertex WIF contract without exposing values in logs."""
+    environment = os.environ.copy()
+    paths = []
+    try:
+        provider = environment.get("FULLSEND_GCP_WIF_PROVIDER", "")
+        if provider:
+            token = environment.get("FULLSEND_ID_TOKEN", "")
+            project = environment.get("FULLSEND_GCP_PROJECT_ID", "")
+            if (
+                not token
+                or not project
+                or not re.fullmatch(
+                    r"projects/[0-9]+/locations/global/workloadIdentityPools/[A-Za-z0-9_-]+/providers/[A-Za-z0-9_-]+",
+                    provider,
+                )
+            ):
+                raise ValueError("complete GitLab Vertex identity required")
+            credentials = {
+                "type": "external_account",
+                "audience": "//iam.googleapis.com/" + provider,
+                "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+                "token_url": "https://sts.googleapis.com/v1/token",
+                "credential_source": {"file": "/sandbox/workspace/.gcp-oidc-token"},
+            }
+            account = environment.get("FULLSEND_GCP_SERVICE_ACCOUNT", "")
+            if account:
+                if not re.fullmatch(
+                    r"[a-z][a-z0-9.-]*@[a-z0-9.-]+[.]iam[.]gserviceaccount[.]com", account
+                ):
+                    raise ValueError("invalid configured inference account")
+                credentials["service_account_impersonation_url"] = (
+                    "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/"
+                    + account
+                    + ":generateAccessToken"
+                )
+            for name, contents in (("oidc", token), ("credentials", json.dumps(credentials))):
+                with tempfile.NamedTemporaryFile(
+                    mode="w", prefix=name + "-", dir=root, delete=False
+                ) as stream:
+                    paths.append(Path(stream.name))
+                    stream.write(contents)
+            environment["GCP_OIDC_TOKEN_FILE"] = str(paths[0])
+            environment["GOOGLE_APPLICATION_CREDENTIALS"] = str(paths[1])
+            environment["GOOGLE_CLOUD_PROJECT"] = project
+            environment["ANTHROPIC_VERTEX_PROJECT_ID"] = project
+        yield environment
+    finally:
+        for path in paths:
+            path.unlink(missing_ok=True)
 
 
 def main():
@@ -58,8 +113,6 @@ def main():
         "--owner",
         "job-" + os.environ["CI_JOB_ID"],
     ]
-    # Check trusted admission before even fetching the submitted repository.
-    subprocess.run(command + ["--check"], check=True)
     if args.finalize_only:
         state = subprocess.run(
             [str(binary), "journal", "read", "--id", operation],
@@ -69,6 +122,8 @@ def main():
         )
         if json.loads(state.stdout)["data"]["state"] != "running":
             return 0
+    # Check trusted admission before even fetching the submitted repository.
+    subprocess.run(command + ["--check"], check=True)
     if not args.finalize_only:
         # The Go worker verifies canonical origin, branch, exact SHA and clean
         # state again before inference and before accepting evidence.
@@ -95,7 +150,10 @@ def main():
         )
     if args.finalize_only:
         command.append("--finalize-only")
-    return subprocess.run(command, check=False).returncode
+    if args.finalize_only:
+        return subprocess.run(command, check=False).returncode
+    with inference_environment(root) as environment:
+        return subprocess.run(command, env=environment, check=False).returncode
 
 
 if __name__ == "__main__":

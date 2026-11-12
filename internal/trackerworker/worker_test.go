@@ -36,7 +36,7 @@ func workerFixture(t *testing.T, wrappers ...func(journal.Backend) journal.Backe
 		store = wrappers[0](backend)
 	}
 	engine := journal.New(store, nil)
-	state := trackerflow.CaseState{ManifestDigest: r.ManifestDigest, Required: []string{targetID}, Targets: map[string]trackerflow.TargetState{targetID: {Target: trackerflow.Target{Repository: r.Repository, Branch: r.Branch, SourceSHA: r.SourceSHA}, Tracker: &trackerflow.TrackerReceipt{Key: r.JiraKey}, Attempts: []trackerflow.Attempt{{Request: r}}}}}
+	state := trackerflow.CaseState{ManifestDigest: r.ManifestDigest, Required: []string{targetID}, Targets: map[string]trackerflow.TargetState{targetID: {Target: trackerflow.Target{Repository: r.Repository, Branch: r.Branch, SourceSHA: r.SourceSHA}, Tracker: &trackerflow.TrackerReceipt{Key: r.JiraKey}, Attempts: []trackerflow.Attempt{{Request: r, State: "accepted"}}}}}
 	data, err := json.Marshal(state)
 	require.NoError(t, err)
 	_, err = engine.Admit(ctx, r.CaseID, r.ManifestDigest, data)
@@ -398,4 +398,91 @@ func TestTwoWorkersCannotRunSameAttempt(t *testing.T) {
 	}
 	require.Equal(t, 1, successes)
 	require.Equal(t, int32(1), calls.Load())
+}
+
+func TestWorkerRejectsTerminalParentAttemptReplay(t *testing.T) {
+	for _, status := range []string{"failed", "cancelled", "assessed", "completed", ""} {
+		t.Run(status, func(t *testing.T) {
+			w, r, source, out := workerFixture(t)
+			executed := false
+			w.Execute = func(context.Context, trackerflow.Request, Profile, string, string) error { executed = true; return nil }
+			changeRecord(t, w.Journal, r.CaseID, func(record *journal.Record) error {
+				var state trackerflow.CaseState
+				require.NoError(t, json.Unmarshal(record.Data, &state))
+				target := state.Targets[r.TargetID]
+				target.Attempts[0].State = status
+				// A newer admitted request must not reactivate the retained old request.
+				next := r
+				next.OperationID = "dispatch-2"
+				target.Attempts = append(target.Attempts, trackerflow.Attempt{Request: next, State: "accepted"})
+				state.Targets[r.TargetID] = target
+				record.Data, _ = json.Marshal(state)
+				return nil
+			})
+			require.ErrorIs(t, w.Run(context.Background(), r, source, out, false), journal.ErrBinding)
+			require.False(t, executed)
+			require.Equal(t, "admitted", workerState(t, w, r).State)
+		})
+	}
+}
+func TestWorkerAcceptsOnlyCurrentKnownPipeline(t *testing.T) {
+	for _, mode := range []string{"accepted", "running", "ambiguous", "wrong-pipeline", "wrong-receipt-operation", "wrong-receipt-digest", "wrong-worker-digest", "duplicate-attempt"} {
+		t.Run(mode, func(t *testing.T) {
+			w, r, _, _ := workerFixture(t)
+			changeRecord(t, w.Journal, r.CaseID, func(record *journal.Record) error {
+				var state trackerflow.CaseState
+				require.NoError(t, json.Unmarshal(record.Data, &state))
+				target := state.Targets[r.TargetID]
+				target.Attempts[0].State = "accepted"
+				receipt := w.RunReceipt
+				switch mode {
+				case "accepted", "running", "ambiguous":
+					target.Attempts[0].State = mode
+				case "wrong-pipeline":
+					receipt.RunID = "other-pipeline"
+				case "wrong-receipt-operation":
+					receipt.OperationID = "other-operation"
+				case "wrong-receipt-digest":
+					receipt.RequestDigest = "other-digest"
+				case "wrong-worker-digest":
+					w.RunReceipt.RequestDigest = "other-digest"
+				case "duplicate-attempt":
+					target.Attempts = append(target.Attempts, target.Attempts[0])
+				}
+				target.Attempts[0].Receipt = &receipt
+				state.Targets[r.TargetID] = target
+				record.Data, _ = json.Marshal(state)
+				return nil
+			})
+			err := w.Validate(context.Background(), r)
+			if mode == "accepted" || mode == "running" || mode == "ambiguous" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, journal.ErrBinding)
+			}
+		})
+	}
+}
+func TestWorkerRechecksParentAttemptBeforeFinalization(t *testing.T) {
+	w, r, source, out := workerFixture(t)
+	finalized := false
+	w.Execute = func(context.Context, trackerflow.Request, Profile, string, string) error {
+		changeRecord(t, w.Journal, r.CaseID, func(record *journal.Record) error {
+			var state trackerflow.CaseState
+			require.NoError(t, json.Unmarshal(record.Data, &state))
+			target := state.Targets[r.TargetID]
+			target.Attempts[0].State = "cancelled"
+			state.Targets[r.TargetID] = target
+			record.Data, _ = json.Marshal(state)
+			return nil
+		})
+		return nil
+	}
+	w.Finalize = func(context.Context, trackerflow.Request, Profile, string, string) (trackerflow.Assessment, error) {
+		finalized = true
+		return trackerflow.Assessment{RequestDigest: r.Digest(), Outcome: "affected", ReceiptRef: "host"}, nil
+	}
+	require.ErrorIs(t, w.Run(context.Background(), r, source, out, false), journal.ErrBinding)
+	require.False(t, finalized)
+	require.Equal(t, "running", workerState(t, w, r).State)
 }

@@ -29,6 +29,9 @@ tracker-assessment:
     name: '$FULLSEND_TRACKER_RUNNER_IMAGE'
     entrypoint: ['']
   tags: ['fullsend-gitlab-runner']
+  id_tokens:
+    FULLSEND_ID_TOKEN:
+      aud: "fullsend"
   timeout: 30m
   rules:
     - if: '$CI_PIPELINE_SOURCE == "api" && $TRACKER_OPERATION_ID != ""'
@@ -46,6 +49,12 @@ tracker-assessment:
     - if [ -f "$CI_PROJECT_DIR/.gitlab/ci/scripts/trust-ci-server-ca.sh" ]; then . "$CI_PROJECT_DIR/.gitlab/ci/scripts/trust-ci-server-ca.sh"; fi
   script:
     - python3 "$CI_PROJECT_DIR/integrations/tracker-first/worker.py"
+  artifacts:
+    when: always
+    access: developer
+    expire_in: 7 days
+    paths:
+      - .tracker-work/*/output/
   after_script:
     # Finalization only consumes an existing validated host receipt. It never
     # repeats inference, guesses an assessment, or promises to run after host loss.

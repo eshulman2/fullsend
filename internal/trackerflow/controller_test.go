@@ -142,18 +142,21 @@ func TestCycleTracksTwoBranchesAndCollectsBoundWorkerEvidence(t *testing.T) {
 	require.Equal(t, 2, tr.created)
 	require.Equal(t, 2, s.submitted)
 	for _, req := range s.requests {
+		known := scheduledReceipt(t, c, req)
 		lease, e := c.Journal.Claim(context.Background(), req.OperationID, "worker", time.Minute)
 		require.NoError(t, e)
 		_, e = c.Journal.Update(context.Background(), req.OperationID, lease, func(r *journal.Record) error {
 			var state WorkerState
 			_ = json.Unmarshal(r.Data, &state)
 			state.State = "assessed"
+			state.RunReceipt = known
 			state.Assessment = &Assessment{RequestDigest: req.Digest(), Outcome: "not_affected", ReceiptRef: "artifact:sha256:receipt"}
 			r.Data = marshal(state)
 			return nil
 		})
 		require.NoError(t, e)
 	}
+	s.result = "completed"
 	report, err = c.Cycle(context.Background(), m)
 	require.NoError(t, err)
 	require.True(t, report.Complete)
@@ -216,13 +219,15 @@ func TestFailureRetriesBoundedAndUncertainStaysHumanPending(t *testing.T) {
 	_, e := c.Cycle(context.Background(), m)
 	require.NoError(t, e)
 	req := s.requests[0]
+	known := scheduledReceipt(t, c, req)
 	lease, e := c.Journal.Claim(context.Background(), req.OperationID, "worker", time.Minute)
 	require.NoError(t, e)
 	_, e = c.Journal.Update(context.Background(), req.OperationID, lease, func(r *journal.Record) error {
-		r.Data = marshal(WorkerState{Request: req, State: "assessed", Assessment: &Assessment{RequestDigest: req.Digest(), Outcome: "uncertain", ReceiptRef: "receipt"}})
+		r.Data = marshal(WorkerState{Request: req, State: "assessed", RunReceipt: known, Assessment: &Assessment{RequestDigest: req.Digest(), Outcome: "uncertain", ReceiptRef: "receipt"}})
 		return nil
 	})
 	require.NoError(t, e)
+	s.result = "completed"
 	r, e := c.Cycle(context.Background(), m)
 	require.NoError(t, e)
 	require.False(t, r.Complete)
@@ -252,10 +257,11 @@ func TestRejectInvalidAndMismatchedEvidence(t *testing.T) {
 	_, e = c.Cycle(context.Background(), m)
 	require.NoError(t, e)
 	req := s.requests[0]
+	known := scheduledReceipt(t, c, req)
 	lease, e := c.Journal.Claim(context.Background(), req.OperationID, "worker", time.Minute)
 	require.NoError(t, e)
 	_, e = c.Journal.Update(context.Background(), req.OperationID, lease, func(r *journal.Record) error {
-		r.Data = marshal(WorkerState{Request: req, State: "assessed", Assessment: &Assessment{RequestDigest: "wrong", Outcome: "affected", ReceiptRef: "receipt"}})
+		r.Data = marshal(WorkerState{Request: req, State: "assessed", RunReceipt: known, Assessment: &Assessment{RequestDigest: "wrong", Outcome: "affected", ReceiptRef: "receipt"}})
 		return nil
 	})
 	require.NoError(t, e)
@@ -458,10 +464,14 @@ func (f *fakeTracker) VerifyAssessment(_ context.Context, m Manifest, t Target, 
 }
 func completeWorker(t *testing.T, c *Controller, request Request, outcome string) {
 	t.Helper()
+	if scheduler, ok := c.Scheduler.(*fakeScheduler); ok {
+		scheduler.result = "completed"
+	}
+	known := scheduledReceipt(t, c, request)
 	lease, err := c.Journal.Claim(context.Background(), request.OperationID, "worker", time.Minute)
 	require.NoError(t, err)
 	_, err = c.Journal.Update(context.Background(), request.OperationID, lease, func(record *journal.Record) error {
-		record.Data = marshal(WorkerState{Request: request, State: "assessed", Assessment: &Assessment{RequestDigest: request.Digest(), Outcome: outcome, ReceiptRef: "sha256:validated-receipt"}})
+		record.Data = marshal(WorkerState{Request: request, State: "assessed", RunReceipt: known, Assessment: &Assessment{RequestDigest: request.Digest(), Outcome: outcome, ReceiptRef: "sha256:validated-receipt"}})
 		return nil
 	})
 	require.NoError(t, err)
@@ -518,4 +528,154 @@ func TestAmbiguousAssessmentPublicationHoldsEmptySearchThenReconciles(t *testing
 	require.NoError(t, err)
 	effect := record.Effects["assessment-"+request.OperationID]
 	require.Equal(t, "confirmed", effect.Status)
+}
+
+func scheduledReceipt(t *testing.T, c *Controller, r Request) *RunReceipt {
+	t.Helper()
+	record, err := c.Journal.Read(context.Background(), r.CaseID)
+	require.NoError(t, err)
+	state, err := readState(record)
+	require.NoError(t, err)
+	for _, attempt := range state.Targets[r.TargetID].Attempts {
+		if attempt.Request == r {
+			require.NotNil(t, attempt.Receipt)
+			return attempt.Receipt
+		}
+	}
+	t.Fatal("missing scheduled attempt")
+	return nil
+}
+func TestCollectRejectsWorkerFromDifferentAcceptedPipeline(t *testing.T) {
+	for _, state := range []string{"running", "assessed"} {
+		changes := []string{"run_id", "run_url"}
+		if state == "assessed" {
+			changes = append(changes, "missing_receipt")
+		}
+		for _, changed := range changes {
+			t.Run(state+"_"+changed, func(t *testing.T) {
+				c, _, _ := setup()
+				r := request()
+				known := RunReceipt{OperationID: r.OperationID, RequestDigest: r.Digest(), RunID: "scheduled-1", RunURL: "https://control.example/pipelines/1", State: "accepted"}
+				candidate := known
+				candidate.State = "running"
+				worker := WorkerState{Request: r, State: state, RunReceipt: &candidate}
+				switch changed {
+				case "run_id":
+					candidate.RunID = "replayed-2"
+				case "run_url":
+					candidate.RunURL = "https://other.example/pipelines/1"
+				case "missing_receipt":
+					worker.RunReceipt = nil
+				}
+				if state == "assessed" {
+					worker.Assessment = &Assessment{RequestDigest: r.Digest(), Outcome: "affected", ReceiptRef: "sha256:validated"}
+				}
+				_, err := c.Journal.Admit(context.Background(), r.OperationID, r.Digest(), marshal(worker))
+				require.NoError(t, err)
+				attempt := Attempt{Request: r, Receipt: &known, State: "accepted"}
+				require.ErrorIs(t, c.collect(context.Background(), &attempt), journal.ErrBinding)
+				require.Equal(t, known, *attempt.Receipt)
+				require.Nil(t, attempt.Assessment)
+				require.Equal(t, "accepted", attempt.State)
+			})
+		}
+	}
+}
+func TestCollectRetainsKnownPipelineIdentityAcrossStateUpdates(t *testing.T) {
+	c, _, scheduler := setup()
+	scheduler.result = "completed"
+	r := request()
+	known := RunReceipt{OperationID: r.OperationID, RequestDigest: r.Digest(), RunID: "scheduled-1", RunURL: "https://control.example/pipelines/1", State: "accepted"}
+	running := known
+	running.State = "running"
+	worker := WorkerState{Request: r, State: "assessed", RunReceipt: &running, Assessment: &Assessment{RequestDigest: r.Digest(), Outcome: "not_affected", ReceiptRef: "sha256:validated"}}
+	_, err := c.Journal.Admit(context.Background(), r.OperationID, r.Digest(), marshal(worker))
+	require.NoError(t, err)
+	attempt := Attempt{Request: r, Receipt: &known, State: "accepted"}
+	require.NoError(t, c.collect(context.Background(), &attempt))
+	require.Equal(t, known.RunID, attempt.Receipt.RunID)
+	require.Equal(t, "assessed", attempt.State)
+	require.NotNil(t, attempt.Assessment)
+}
+
+func TestValidatedWorkerEvidenceKeepsRunningPipelineInConcurrencyBound(t *testing.T) {
+	c, tracker, scheduler := setup()
+	m := manifest()
+	m.Limits.MaxConcurrent = 1
+	first, err := c.Cycle(context.Background(), m)
+	require.NoError(t, err)
+	require.False(t, first.Complete)
+	require.Equal(t, 1, scheduler.submitted)
+	request := scheduler.requests[0]
+	completeWorker(t, c, request, "not_affected")
+	scheduler.result = "running"
+	report, err := c.Cycle(context.Background(), m)
+	require.NoError(t, err)
+	require.False(t, report.Complete)
+	require.Equal(t, 1, scheduler.submitted, "validated evidence cannot release a still-running pipeline's slot")
+	require.Zero(t, tracker.assessmentCreated, "assessment publication waits for scheduler termination")
+	attempt := report.Targets[request.TargetID].Attempts[0]
+	require.Equal(t, "running", attempt.State)
+	require.NotNil(t, attempt.Assessment, "validated evidence is retained while CI remains running")
+	record, err := c.Journal.Read(context.Background(), m.CaseID)
+	require.NoError(t, err)
+	state, err := readState(record)
+	require.NoError(t, err)
+	require.Equal(t, 1, active(state))
+	for id, target := range report.Targets {
+		if id != request.TargetID {
+			require.Equal(t, "case_concurrency_bound", target.Blocker)
+		}
+	}
+	// Reconcile earlier journal checkpoints that prematurely marked retained
+	// worker evidence terminal while the same CI pipeline remained running.
+	legacyLease, e := c.Journal.Claim(context.Background(), m.CaseID, "legacy-checkpoint", time.Minute)
+	require.NoError(t, e)
+	_, e = c.Journal.Update(context.Background(), m.CaseID, legacyLease, func(r *journal.Record) error {
+		saved, e := readState(r)
+		if e != nil {
+			return e
+		}
+		target := saved.Targets[request.TargetID]
+		target.Attempts[0].State = "assessed"
+		saved.Targets[request.TargetID] = target
+		r.Data = marshal(saved)
+		return nil
+	})
+	require.NoError(t, e)
+	require.NoError(t, c.Journal.Release(context.Background(), m.CaseID, legacyLease))
+	report, err = c.Cycle(context.Background(), m)
+	require.NoError(t, err)
+	require.Equal(t, "running", report.Targets[request.TargetID].Attempts[0].State)
+	require.Equal(t, 1, scheduler.submitted)
+	scheduler.result = "completed"
+	report, err = c.Cycle(context.Background(), m)
+	require.NoError(t, err)
+	require.False(t, report.Complete)
+	require.Equal(t, 2, scheduler.submitted)
+	require.Equal(t, 1, tracker.assessmentCreated)
+	completeWorker(t, c, scheduler.requests[1], "not_affected")
+	report, err = c.Cycle(context.Background(), m)
+	require.NoError(t, err)
+	require.True(t, report.Complete)
+	require.Equal(t, 2, tracker.assessmentCreated)
+}
+func TestCollectRetainsValidatedEvidenceAfterConfirmedFailedPipeline(t *testing.T) {
+	for _, terminalState := range []string{"failed", "cancelled"} {
+		t.Run(terminalState, func(t *testing.T) {
+			c, _, scheduler := setup()
+			scheduler.result = terminalState
+			request := request()
+			receipt := RunReceipt{OperationID: request.OperationID, RequestDigest: request.Digest(), RunID: "pipeline-1", RunURL: "https://control.example/pipelines/1", State: "running"}
+			assessment := Assessment{RequestDigest: request.Digest(), Outcome: "uncertain", ReceiptRef: "sha256:validated"}
+			worker := WorkerState{Request: request, State: "assessed", RunReceipt: &receipt, Assessment: &assessment}
+			_, err := c.Journal.Admit(context.Background(), request.OperationID, request.Digest(), marshal(worker))
+			require.NoError(t, err)
+			attempt := Attempt{Request: request, Receipt: &receipt, State: "running"}
+			require.NoError(t, c.collect(context.Background(), &attempt))
+			require.Equal(t, "assessed", attempt.State)
+			require.Equal(t, terminalState, attempt.Receipt.State)
+			require.Equal(t, &assessment, attempt.Assessment)
+		})
+	}
 }

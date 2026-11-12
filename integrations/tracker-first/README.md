@@ -34,7 +34,12 @@ credentials. See the [journal command](../../docs/cli/journal.md),
 [worker command](../../docs/cli/tracker-worker.md) and
 [adapter guide](../../docs/guides/user/tracker-first-intake.md) for exact fields.
 Keep real site addresses, project identifiers and credential values out of this
-repository. Existing Jira and model authentication requirements still apply.
+repository. Existing Jira and model authentication requirements still apply. The worker job
+requests the normal `FULLSEND_ID_TOKEN` audience. For Vertex it prepares private
+file-based credentials from the configured `FULLSEND_GCP_WIF_PROVIDER`,
+`FULLSEND_GCP_PROJECT_ID` and optional `FULLSEND_GCP_SERVICE_ACCOUNT`. The harness
+must retain its ordinary Vertex provider and host-file mounts. No credential
+values are written into journal records or committed configuration.
 
 Each worker profile must provide a pinned local evidence validator. The ordinary
 publishing post-script is disabled. Validate the canonical assessment output,
@@ -83,3 +88,11 @@ python3 integrations/tracker-first/check_hosted_journal.py \
 This creates and retains labeled conformance records, races two owners and
 checks fencing plus retained budgets/pending effects. It makes no Jira writes
 or model calls. It is one hosted storage check, not complete saga acceptance.
+
+The example worker retains its private attempt-output directory as restricted
+GitLab job artifacts even after job failure. Credentials are prepared outside
+that directory and are not artifact paths. Review the profile's artifact policy
+and adjust the example seven-day retention for the deployment. Runner loss can
+still prevent upload; missing evidence remains unresolved rather than becoming
+an applicability verdict. Pipeline termination must be reconciled before its
+concurrency reservation is released.
