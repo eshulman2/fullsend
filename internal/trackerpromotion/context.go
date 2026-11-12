@@ -146,7 +146,23 @@ func (e Exporter) Export(ctx context.Context, m trackerflow.Manifest, targetID, 
 		return nil, err
 	}
 	var ws trackerflow.WorkerState
-	if worker.Binding != r.Digest() || decode(worker.Data, &ws) != nil || ws.Request != r || ws.State != "assessed" || ws.Assessment == nil || *ws.Assessment != a || ws.RunReceipt == nil || ws.RunReceipt.OperationID != r.OperationID || ws.RunReceipt.RequestDigest != r.Digest() || ws.RunReceipt.RunID != latest.Receipt.RunID || ws.RunReceipt.RunURL != latest.Receipt.RunURL {
+	if worker.Binding != r.Digest() || decode(worker.Data, &ws) != nil || ws.Request != r || ws.Assessment == nil || *ws.Assessment != a || ws.RunReceipt == nil || ws.RunReceipt.OperationID != r.OperationID || ws.RunReceipt.RequestDigest != r.Digest() || ws.RunReceipt.RunID != latest.Receipt.RunID || ws.RunReceipt.RunURL != latest.Receipt.RunURL {
+		return nil, journal.ErrBinding
+	}
+	failedDiagnostic := false
+	switch ws.State {
+	case "assessed":
+		// A host failure marker is never canonical model evidence, even if
+		// a malformed record labels it assessed.
+		if strings.HasPrefix(a.ReceiptRef, "worker-failure:") {
+			return nil, journal.ErrBinding
+		}
+	case "failed":
+		if a.Outcome != "failed" || a.ReceiptRef != "worker-failure:"+r.OperationID {
+			return nil, journal.ErrBinding
+		}
+		failedDiagnostic = true
+	default:
 		return nil, journal.ErrBinding
 	}
 	if err = e.CheckIssue(ctx, r.JiraKey); err != nil {
@@ -203,7 +219,15 @@ func (e Exporter) Export(ctx context.Context, m trackerflow.Manifest, targetID, 
 	domain["parent_generation"] = parent.Generation
 	domain["parent_data_digest"] = rawDigest(parent.Data)
 	domain["target"] = map[string]any{"repository": connection["repository"], "branch": target.Branch, "component": target.Component, "product": target.Product, "release": target.Release, "stream": target.Stream, "owner": target.Owner}
-	domain["accepted_native_assessment"] = a
+	delete(domain, "accepted_native_assessment")
+	delete(domain, "accepted_native_diagnostic")
+	if failedDiagnostic {
+		domain["evidence_kind"] = "failed_host_diagnostic"
+		domain["accepted_native_diagnostic"] = a
+	} else {
+		domain["evidence_kind"] = "canonical_assessment"
+		domain["accepted_native_assessment"] = a
+	}
 	domain["accepted_native_request"] = r
 	domain["intake_digest"], err = DomainDigest(map[string]any{"intake": intake, "policy_digest": m.PolicyDigest, "mapping": target.DomainContext, "assignee": m.Jira.AssigneeAccountID})
 	if err != nil {

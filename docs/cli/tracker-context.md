@@ -59,3 +59,14 @@ Before phase/effect writes, the coordinator passes the fresh observation as
 --require-data-digest PARENT_DATA_DIGEST`. These predicates must be checked on
 the same whole-document CAS as the write; a separate preceding read does not
 prevent stale-parent admission.
+
+A published host execution failure may also be exported for fresh read-only
+triage: the latest parent attempt and worker must agree on the exact diagnostic
+`outcome: failed`, `receipt_ref: worker-failure:<operation>`, with worker state
+`failed`. All publication, current-parent, Jira and source checks still apply.
+Output uses `evidence_kind: failed_host_diagnostic` and
+`accepted_native_diagnostic`; it never supplies `accepted_native_assessment` for
+this case. Normal validated model evidence uses `evidence_kind:
+canonical_assessment`. A failed diagnostic establishes no applicability finding
+or ready plan. Coding still requires a new independently validated affected,
+ready, in-scope plan and fresh authenticated human approval.
