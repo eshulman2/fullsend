@@ -125,6 +125,14 @@ func (c *Controller) Cycle(ctx context.Context, m Manifest) (Report, error) {
 	for id, t := range state.Targets {
 		for i := range t.Attempts {
 			a := &t.Attempts[i]
+			// Older checkpoints may have marked evidence terminal before CI ended.
+			// Reconcile those records too, rather than trusting the premature state.
+			if terminal(a.State) && a.Receipt != nil && (a.Receipt.State == "accepted" || a.Receipt.State == "running") {
+				a.State = a.Receipt.State
+			}
+			if a.State == "assessed" && a.Receipt == nil {
+				a.State = "ambiguous"
+			}
 			if terminal(a.State) {
 				continue
 			}
@@ -308,58 +316,73 @@ func (c *Controller) ttl() time.Duration {
 	return 15 * time.Minute
 }
 func (c *Controller) collect(ctx context.Context, a *Attempt) error {
-	r, err := c.Journal.Read(ctx, a.Request.OperationID)
+	record, err := c.Journal.Read(ctx, a.Request.OperationID)
 	if err != nil {
 		return err
 	}
-	if r.Binding != a.Request.Digest() {
+	if record.Binding != a.Request.Digest() {
 		return journal.ErrBinding
 	}
 	var worker WorkerState
-	if err = json.Unmarshal(r.Data, &worker); err != nil || worker.Request != a.Request {
+	if json.Unmarshal(record.Data, &worker) != nil || worker.Request != a.Request {
 		return journal.ErrIntegrity
 	}
+	known := a.Receipt
 	if worker.RunReceipt != nil {
 		if err = receiptValid(a.Request, *worker.RunReceipt); err != nil {
 			return err
 		}
-		a.Receipt = worker.RunReceipt
+		if known != nil && (known.RunID != worker.RunReceipt.RunID || known.RunURL != worker.RunReceipt.RunURL) {
+			return journal.ErrBinding
+		}
+		known = worker.RunReceipt
 	}
-	if (worker.State == "failed" || worker.State == "cancelled") && worker.Assessment == nil {
-		a.State = worker.State
-		return nil
-	}
-	if worker.Assessment != nil {
-		if err = worker.Assessment.Validate(a.Request); err != nil {
+	evidence := worker.Assessment
+	if evidence != nil {
+		if worker.RunReceipt == nil {
+			return journal.ErrBinding
+		}
+		if err = evidence.Validate(a.Request); err != nil {
 			return err
 		}
-		a.Assessment = worker.Assessment
-		a.State = "assessed"
-		return nil
 	}
-	receipt, assessment, err := c.Scheduler.Reconcile(ctx, a.Request, a.Receipt)
+	// Validated model evidence and CI termination are separate receipts. Even
+	// after evidence is retained, the attempt consumes its concurrency slot until
+	// the scheduler confirms that the accepted pipeline has terminated.
+	receipt, schedulerEvidence, err := c.Scheduler.Reconcile(ctx, a.Request, known)
 	if err != nil {
 		return err
 	}
 	if err = receiptValid(a.Request, receipt); err != nil {
 		return err
 	}
-	a.Receipt = &receipt
-	if assessment != nil {
-		if err = assessment.Validate(a.Request); err != nil {
+	if known != nil && (known.RunID != receipt.RunID || known.RunURL != receipt.RunURL) {
+		return journal.ErrBinding
+	}
+	if schedulerEvidence != nil {
+		if err = schedulerEvidence.Validate(a.Request); err != nil {
 			return err
 		}
-		a.Assessment = assessment
-		a.State = "assessed"
-		return nil
+		if evidence != nil && *schedulerEvidence != *evidence {
+			return journal.ErrBinding
+		}
+		evidence = schedulerEvidence
 	}
+	a.Receipt = &receipt
+	a.Assessment = evidence
 	switch receipt.State {
-	case "failed", "cancelled":
+	case "accepted", "running":
 		a.State = receipt.State
-	case "completed":
-		a.State = "failed"
-	default:
-		a.State = receipt.State
+	case "completed", "failed", "cancelled":
+		if evidence != nil {
+			// A valid assessment remains useful after a later CI cleanup failure. Its
+			// outcome and publication rules still decide domain completion.
+			a.State = "assessed"
+		} else if receipt.State == "completed" {
+			a.State = "failed"
+		} else {
+			a.State = receipt.State
+		}
 	}
 	return nil
 }

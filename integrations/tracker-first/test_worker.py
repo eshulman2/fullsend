@@ -18,6 +18,8 @@ if SPEC is None or SPEC.loader is None:
 WORKER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(WORKER)
 
+WIF_PROVIDER = "projects/123/locations/global/workloadIdentityPools/test/providers/gitlab"
+
 
 class WorkerAdmissionTests(unittest.TestCase):
     def setUp(self):
@@ -91,7 +93,7 @@ class WorkerAdmissionTests(unittest.TestCase):
         ):
             run.return_value.stdout = '{"data":{"state":"assessed"}}'
             self.assertEqual(WORKER.main(), 0)
-            self.assertEqual(run.call_count, 2)
+            self.assertEqual(run.call_count, 1)
             self.assertTrue(all(call.args[0][0] != "git" for call in run.call_args_list))
 
     def test_debug_or_unprotected_job_is_rejected(self):
@@ -102,3 +104,54 @@ class WorkerAdmissionTests(unittest.TestCase):
                 self.assertRaises(ValueError),
             ):
                 WORKER.main()
+
+
+class VertexEnvironmentTests(unittest.TestCase):
+    def test_existing_routes_are_preserved_without_wif(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.dict(os.environ, {"EXISTING": "value"}, clear=True),
+        ):
+            with WORKER.inference_environment(Path(directory)) as env:
+                self.assertEqual(env, {"EXISTING": "value"})
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_wif_files_are_private_and_removed(self):
+        values = {
+            "FULLSEND_GCP_WIF_PROVIDER": WIF_PROVIDER,
+            "FULLSEND_GCP_PROJECT_ID": "test-project",
+            "FULLSEND_ID_TOKEN": "synthetic-identity",
+            "FULLSEND_GCP_SERVICE_ACCOUNT": "runner@test-project.iam.gserviceaccount.com",
+        }
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, values, clear=True):
+            with WORKER.inference_environment(Path(directory)) as env:
+                token = Path(env["GCP_OIDC_TOKEN_FILE"])
+                credentials = Path(env["GOOGLE_APPLICATION_CREDENTIALS"])
+                self.assertEqual(token.read_text(), "synthetic-identity")
+                self.assertEqual(token.stat().st_mode & 0o777, 0o600)
+                data = json.loads(credentials.read_text())
+                self.assertEqual(
+                    data["credential_source"]["file"], "/sandbox/workspace/.gcp-oidc-token"
+                )
+                self.assertIn("service_account_impersonation_url", data)
+                self.assertEqual(env["GOOGLE_CLOUD_PROJECT"], "test-project")
+            self.assertFalse(token.exists())
+            self.assertFalse(credentials.exists())
+
+    def test_invalid_inference_identity_creates_no_files(self):
+        for values in (
+            {"FULLSEND_GCP_WIF_PROVIDER": "invalid"},
+            {
+                "FULLSEND_GCP_WIF_PROVIDER": WIF_PROVIDER,
+                "FULLSEND_GCP_PROJECT_ID": "test-project",
+                "FULLSEND_ID_TOKEN": "synthetic",
+                "FULLSEND_GCP_SERVICE_ACCOUNT": "invalid/account",
+            },
+        ):
+            with (
+                tempfile.TemporaryDirectory() as directory,
+                patch.dict(os.environ, values, clear=True),
+            ):
+                with self.assertRaises(ValueError), WORKER.inference_environment(Path(directory)):
+                    self.fail("invalid identity admitted")
+                self.assertEqual(list(Path(directory).iterdir()), [])

@@ -68,9 +68,25 @@ func (w Worker) Validate(ctx context.Context, r trackerflow.Request) error {
 	}
 	found := false
 	for _, a := range target.Attempts {
-		if a.Request == r {
-			found = true
+		if a.Request != r {
+			continue
 		}
+		// A retained request is not permission to replay a terminal attempt.
+		// The controller may already have admitted a newer attempt for this target.
+		if found {
+			return journal.ErrBinding
+		}
+		switch a.State {
+		case "accepted", "running", "ambiguous":
+		default:
+			return journal.ErrBinding
+		}
+		if a.Receipt != nil && a.Receipt.RunID != "" {
+			if a.Receipt.OperationID != r.OperationID || a.Receipt.RequestDigest != r.Digest() || w.RunReceipt.OperationID != r.OperationID || w.RunReceipt.RequestDigest != r.Digest() || a.Receipt.RunID != w.RunReceipt.RunID {
+				return journal.ErrBinding
+			}
+		}
+		found = true
 	}
 	if !found {
 		return journal.ErrBinding

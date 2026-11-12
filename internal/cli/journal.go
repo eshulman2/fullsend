@@ -19,7 +19,7 @@ func newJournalCmd() *cobra.Command {
 	var id, binding, owner, kind, effectID, status, counter string
 	var generation, limit uint64
 	var ttl time.Duration
-	cmd := &cobra.Command{Use: "journal <initialize|read|admit|claim|renew|release|update|intent|effect|spend>", Short: "Checkpoint a saga in the protected GitLab control repository", Args: cobra.ExactArgs(1)}
+	cmd := &cobra.Command{Use: "journal <initialize|read|admit|claim|renew|release|update|rebind|intent|effect|spend>", Short: "Checkpoint a saga in the protected GitLab control repository", Args: cobra.ExactArgs(1)}
 	cmd.Long = "Read and conditionally update the journal selected by protected FULLSEND_JOURNAL_PROFILE installation state. JSON payloads and leases use standard input/output; journal credentials remain host-side. No model is invoked."
 	cmd.Flags().StringVar(&id, "id", "", "stable admitted operation identity")
 	cmd.Flags().StringVar(&binding, "binding", "", "immutable input digest for admission or effect")
@@ -33,7 +33,7 @@ func newJournalCmd() *cobra.Command {
 	cmd.Flags().Uint64Var(&limit, "limit", 0, "maximum budget consumption")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		action := args[0]
-		allowed := map[string]bool{"initialize": true, "read": true, "admit": true, "claim": true, "renew": true, "release": true, "update": true, "intent": true, "effect": true, "spend": true}
+		allowed := map[string]bool{"initialize": true, "read": true, "admit": true, "claim": true, "renew": true, "release": true, "update": true, "rebind": true, "intent": true, "effect": true, "spend": true}
 		if !allowed[action] {
 			return errors.New("unknown journal operation")
 		}
@@ -72,6 +72,13 @@ func newJournalCmd() *cobra.Command {
 			if err == nil {
 				result, err = engine.Update(ctx, id, lease, func(r *journal.Record) error { r.Data = data; return nil })
 			}
+		case "rebind":
+			var data json.RawMessage
+			data, err = readJournalJSON(cmd.InOrStdin())
+			if err == nil {
+				result, err = engine.Rebind(ctx, id, lease, binding, data)
+			}
+
 		case "intent":
 			result, err = engine.Intent(ctx, id, lease, journal.Effect{ID: effectID, Kind: kind, Binding: binding, Status: "intended"})
 		case "effect":

@@ -49,6 +49,7 @@ Mutations require `--id`, `--owner` and the `--generation` returned by `claim`:
 | `renew` | Optional `--ttl` |
 | `release` | Releases the current lease |
 | `update` | Bounded replacement domain data on stdin; retains budgets/effects |
+| `rebind` | `--binding` plus new reviewed domain data on stdin; preserves consumed bounds and effects |
 | `intent` | `--effect-id`, `--kind`, `--binding` |
 | `effect` | `--effect-id`, `--status`; confirmed receipt JSON on stdin |
 | `spend` | `--counter`, `--limit`; consumption survives later attempts |

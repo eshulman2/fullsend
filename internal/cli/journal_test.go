@@ -69,6 +69,8 @@ func TestJournalCLIDurableLifecycle(t *testing.T) {
 	require.ErrorIs(t, err, journal.ErrBudget)
 	_, err = call(`{"targets":["main","release"],"checked":true}`, "update")
 	require.NoError(t, err)
+	_, err = call(`{"targets":["main","release"],"checked":true}`, "rebind", "--binding", "source-sha-2")
+	require.NoError(t, err)
 	_, err = call("", "renew", "--ttl", "10m")
 	require.NoError(t, err)
 	output, err = runJournal(t, "", "read", "--id", "case")
@@ -81,11 +83,13 @@ func TestJournalCLIDurableLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, record.Lease.Owner)
 	require.Equal(t, uint64(1), record.Counters["attempts"])
+	require.Equal(t, "source-sha-2", record.Binding)
+	require.Equal(t, "confirmed", record.Effects["dispatch-1"].Status)
 }
 func TestJournalCLIRejectsMalformedAndUnownedOperations(t *testing.T) {
 	_, backend := journalCommandFixture(t)
 	require.NoError(t, backend.Initialize(context.Background()))
-	for _, args := range [][]string{{"unknown"}, {"read"}, {"admit", "--id", "case", "--binding", "sha"}, {"effect", "--id", "case", "--status", "confirmed"}} {
+	for _, args := range [][]string{{"unknown"}, {"read"}, {"rebind", "--id", "case", "--binding", "sha-2"}, {"admit", "--id", "case", "--binding", "sha"}, {"effect", "--id", "case", "--status", "confirmed"}} {
 		_, err := runJournal(t, "bad json", args...)
 		require.Error(t, err)
 	}
