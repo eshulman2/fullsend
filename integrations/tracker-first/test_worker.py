@@ -119,6 +119,35 @@ class WorkerAdmissionTests(unittest.TestCase):
 
 
 class VertexEnvironmentTests(unittest.TestCase):
+    def test_configured_region_reaches_both_vertex_readers(self):
+        for region in ("global", "us-central1"):
+            with (
+                tempfile.TemporaryDirectory() as directory,
+                patch.dict(
+                    os.environ,
+                    {
+                        "FULLSEND_GCP_REGION": region,
+                        "GOOGLE_CLOUD_LOCATION": "stale-location",
+                        "CLOUD_ML_REGION": "stale-region",
+                    },
+                    clear=True,
+                ),
+                WORKER.inference_environment(Path(directory)) as environment,
+            ):
+                self.assertEqual(environment["GOOGLE_CLOUD_LOCATION"], region)
+                self.assertEqual(environment["CLOUD_ML_REGION"], region)
+                self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_invalid_region_is_rejected_before_credentials_or_execution(self):
+        for region in ("bad region", "global\n", "https://other.example"):
+            with (
+                tempfile.TemporaryDirectory() as directory,
+                patch.dict(os.environ, {"FULLSEND_GCP_REGION": region}, clear=True),
+            ):
+                with self.assertRaises(ValueError), WORKER.inference_environment(Path(directory)):
+                    self.fail("invalid region reached execution")
+                self.assertEqual(list(Path(directory).iterdir()), [])
+
     def test_existing_routes_are_preserved_without_wif(self):
         with (
             tempfile.TemporaryDirectory() as directory,

@@ -21,6 +21,10 @@ var sha = regexp.MustCompile(`^[a-f0-9]{40}$`)
 var digest = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var jiraKey = regexp.MustCompile(`^[A-Z][A-Z0-9_]*-[1-9][0-9]*$`)
 
+// Receipt references may bind a retained artifact to its canonical SHA256.
+// Keep the legacy reference alphabet; admit only the structured hash fragment.
+var receiptReference = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:/+-]*(?:#sha256=[a-f0-9]{64})?$`)
+
 // Manifest is reviewed host input, never worker or Jira-authored configuration.
 type Manifest struct {
 	SchemaVersion int         `json:"schema_version"`
@@ -134,7 +138,7 @@ type Assessment struct {
 }
 
 func (a Assessment) Validate(r Request) error {
-	if a.RequestDigest != r.Digest() || len(a.ReceiptRef) > 2048 || !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$`).MatchString(a.ReceiptRef) {
+	if a.RequestDigest != r.Digest() || len(a.ReceiptRef) > 2048 || !receiptReference.MatchString(a.ReceiptRef) {
 		return errors.New("assessment input binding mismatch")
 	}
 	switch a.Outcome {

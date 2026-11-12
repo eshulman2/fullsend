@@ -19,6 +19,15 @@ def inference_environment(root):
     environment = os.environ.copy()
     paths = []
     try:
+        # The pinned Pi google-vertex provider reads GOOGLE_CLOUD_LOCATION;
+        # other Vertex runtime paths read CLOUD_ML_REGION. Use the reviewed
+        # GitLab region for both instead of silently selecting another region.
+        region = environment.get("FULLSEND_GCP_REGION", "")
+        if region:
+            if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", region):
+                raise ValueError("invalid configured inference region")
+            environment["CLOUD_ML_REGION"] = region
+            environment["GOOGLE_CLOUD_LOCATION"] = region
         provider = environment.get("FULLSEND_GCP_WIF_PROVIDER", "")
         if provider:
             token = environment.get("FULLSEND_ID_TOKEN", "")
