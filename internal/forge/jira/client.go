@@ -558,6 +558,18 @@ const maxSearchPages = 200
 // direct comment/changelog GETs, never from search results, so no events
 // are lost. Do not "fix" ordering assumptions by trusting search freshness.
 func (c *LiveClient) SearchIssues(ctx context.Context, jql string, limit int) ([]Issue, error) {
+	return c.searchIssues(ctx, jql, limit, searchFields)
+}
+
+// SearchIssueMetadata searches classification and routing fields only, without
+// requesting summaries, descriptions, comments or custom fields.
+func (c *LiveClient) SearchIssueMetadata(ctx context.Context, jql string, limit int) ([]Issue, error) {
+	return c.searchIssues(ctx, jql, limit, issueMetadataFields)
+}
+
+var issueMetadataFields = []string{"security", "labels", "status", "assignee", "project", "issuetype"}
+
+func (c *LiveClient) searchIssues(ctx context.Context, jql string, limit int, fields []string) ([]Issue, error) {
 	var all []Issue
 	var nextPageToken string
 	for page := 0; page < maxSearchPages; page++ {
@@ -568,7 +580,7 @@ func (c *LiveClient) SearchIssues(ctx context.Context, jql string, limit int) ([
 		body := searchRequest{
 			JQL:           jql,
 			MaxResults:    50,
-			Fields:        searchFields,
+			Fields:        fields,
 			NextPageToken: nextPageToken,
 		}
 		bodyJSON, err := json.Marshal(body)
@@ -598,6 +610,17 @@ func (c *LiveClient) GetIssue(ctx context.Context, issueIDOrKey string) (*Issue,
 	path := "/issue/" + url.PathEscape(issueIDOrKey)
 	if err := c.do(ctx, http.MethodGet, path, nil, &issue); err != nil {
 		return nil, fmt.Errorf("get issue %s: %w", issueIDOrKey, err)
+	}
+	return &issue, nil
+}
+
+// GetIssueMetadata reads classification and routing fields before substantive
+// issue content is requested by a domain admission gate.
+func (c *LiveClient) GetIssueMetadata(ctx context.Context, issueIDOrKey string) (*Issue, error) {
+	var issue Issue
+	path := "/issue/" + url.PathEscape(issueIDOrKey) + "?fields=" + url.QueryEscape(strings.Join(issueMetadataFields, ","))
+	if err := c.do(ctx, http.MethodGet, path, nil, &issue); err != nil {
+		return nil, fmt.Errorf("get issue metadata: %w", err)
 	}
 	return &issue, nil
 }
@@ -637,6 +660,12 @@ type CreateIssueInput struct {
 	ParentKey string
 	// Summary is the issue title.
 	Summary string
+	// Labels and Properties are included in the original create request so a
+	// recovery marker cannot be lost between creation and a later update.
+	Labels     []string
+	Properties []CommentProperty
+	// AssigneeAccountID is an optional Jira Cloud account identity.
+	AssigneeAccountID string
 	// Description is markdown; it is converted to ADF before being sent.
 	// An empty description is omitted from the request.
 	Description string
@@ -678,7 +707,17 @@ func (c *LiveClient) CreateIssue(ctx context.Context, in CreateIssueInput) (*Cre
 		}
 		fields["description"] = adf
 	}
-	reqBody, err := json.Marshal(map[string]any{"fields": fields})
+	if len(in.Labels) > 0 {
+		fields["labels"] = in.Labels
+	}
+	if in.AssigneeAccountID != "" {
+		fields["assignee"] = map[string]string{"accountId": in.AssigneeAccountID}
+	}
+	payload := map[string]any{"fields": fields}
+	if len(in.Properties) > 0 {
+		payload["properties"] = in.Properties
+	}
+	reqBody, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal create issue request: %w", err)
 	}

@@ -514,7 +514,9 @@ func gatewayRecoveryStub(t *testing.T) string {
 func shrinkGatewayRefreshTimers(t *testing.T) {
 	t.Helper()
 	oldPoll, oldSettle, oldMin, oldBackoff := openAIPlaceholderPoll, openAIPlaceholderSettle, gatewayRefreshMinDelay, gatewayRefreshBackoff
-	openAIPlaceholderPoll, openAIPlaceholderSettle, gatewayRefreshMinDelay, gatewayRefreshBackoff = time.Millisecond, 20*time.Millisecond, time.Millisecond, time.Millisecond
+	// Provider propagation runs multiple subprocesses; allow scheduler headroom
+	// while retaining fast polling and a bounded test deadline.
+	openAIPlaceholderPoll, openAIPlaceholderSettle, gatewayRefreshMinDelay, gatewayRefreshBackoff = time.Millisecond, 250*time.Millisecond, time.Millisecond, time.Millisecond
 	t.Cleanup(func() {
 		openAIPlaceholderPoll, openAIPlaceholderSettle, gatewayRefreshMinDelay, gatewayRefreshBackoff = oldPoll, oldSettle, oldMin, oldBackoff
 	})

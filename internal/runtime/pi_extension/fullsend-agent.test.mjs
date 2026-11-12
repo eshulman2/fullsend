@@ -396,8 +396,8 @@ test("childArgs mirrors the runner's pi command line, extensions in manifest ord
   assert.match(CHILD_SYSTEM_NOTE, /sub-agent/);
 
   const empty = childArgs(manifest.agent, { seq: 4, modelSpec: "anthropic-vertex/claude-opus-4-6", tools: [] });
-  assert.ok(empty.includes("--no-builtin-tools"), "an empty child tool list means no built-ins, like the runner does for the parent");
-  assert.ok(!empty.includes("--tools"));
+  assert.ok(empty.includes("--tools") && empty[empty.indexOf("--tools") + 1] === "", "empty child selection excludes builtins and extension tools");
+  assert.ok(!empty.includes("--no-builtin-tools"));
 });
 
 test("childArgs loads the edit repair only for a child whose tools name edit", () => {
@@ -2052,4 +2052,15 @@ test("run: no fallback starts with less than the minimum attempt time left", asy
   for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
   assert.equal(children.length, 1);
   rmSync(dir, { recursive: true, force: true });
+});
+
+
+test("run refuses native child tools instead of silently omitting vetted code", async () => {
+  const { manifest } = fixture();
+  manifest.agent.tools = ["cve"];
+  manifest.agent.nativeTools = ["cve"];
+  const tool = createAgentTool(manifest, { ...quiet, spawn: () => { assert.fail("native child must not spawn"); } });
+  const result = await tool.run({ prompt: "assess" }, { parentModel: "anthropic-vertex/claude-opus-4-6" });
+  assert.equal(result.isError, true);
+  assert.match(result.error, /native extension tools are unsupported in child runs/);
 });

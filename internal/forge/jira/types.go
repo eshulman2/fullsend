@@ -23,16 +23,18 @@ type CreatedIssue struct {
 
 // IssueFields contains the standard fields of a Jira issue.
 type IssueFields struct {
-	Summary     string       `json:"summary"`
-	Description any          `json:"description"` // ADF object or string
-	Status      Status       `json:"status"`
-	Labels      []string     `json:"labels"`
-	Reporter    User         `json:"reporter"`
-	Assignee    User         `json:"assignee"` // zero value when unassigned (Jira returns null)
-	Created     string       `json:"created"`
-	Updated     string       `json:"updated"`
-	Comment     *CommentPage `json:"comment,omitempty"`
-	IssueType   *IssueType   `json:"issuetype,omitempty"`
+	// Security preserves missing versus explicit null for public-disclosure gates.
+	Security    json.RawMessage `json:"security,omitempty"`
+	Summary     string          `json:"summary"`
+	Description any             `json:"description"` // ADF object or string
+	Status      Status          `json:"status"`
+	Labels      []string        `json:"labels"`
+	Reporter    User            `json:"reporter"`
+	Assignee    User            `json:"assignee"` // zero value when unassigned (Jira returns null)
+	Created     string          `json:"created"`
+	Updated     string          `json:"updated"`
+	Comment     *CommentPage    `json:"comment,omitempty"`
+	IssueType   *IssueType      `json:"issuetype,omitempty"`
 	// Project is the issue's project. Its ID is the immutable Jira
 	// container identity for trace binding; the key is display-only.
 	Project *ProjectRef `json:"project,omitempty"`

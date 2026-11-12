@@ -40,3 +40,11 @@ To update an installed binary later, run [`fullsend self-update`](self-update.md
 All commands that interact with GitHub resolve authentication via `GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth token` (in that order). Explicit token flags such as `--token` and `--forge-token` override the chain. For GitLab, set `GITLAB_TOKEN` or pass `--gitlab-token` to `repos` subcommands. The CLI runs preflight checks and tells you exactly which OAuth scopes are missing before making any changes.
 
 For the complete command tree with implementation details, see [CLI internals](../guides/dev/cli-internals.md).
+
+The fork's saga integrations add [fullsend journal](journal.md) for durable
+host checkpoints and [fullsend tracker-worker](tracker-worker.md) for one
+admitted target. The [tracker-first domain adapter](../guides/user/tracker-first-intake.md)
+is a separate command, not a multi-target extension of `fullsend run`.
+
+The companion [tracker-context adapter](tracker-context.md) exports fresh,
+verified planning and promotion context from an accepted branch assessment.

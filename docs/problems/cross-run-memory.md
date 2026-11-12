@@ -167,6 +167,8 @@ The risk: if recovery decisions feed into memory without review, a poorly-chosen
 
 Retry loops can become flapping when the system does not converge. See [flapping-convergence.md](flapping-convergence.md) for detection and circuit-breaking mechanisms. Error recovery addresses the single-task question (when to retry vs. escalate); flapping addresses the systemic question (when to stop the system from oscillating).
 
+Mechanical restart recovery is distinct from learning a better strategy: [durable work recovery](durable-work-recovery.md) retains attempts and work bounds without inferring that another model run will succeed.
+
 ## Open questions
 
 - Which run outcomes are safe to feed forward automatically, and which require human review first?

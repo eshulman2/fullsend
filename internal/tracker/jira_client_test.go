@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/fullsend-ai/fullsend/internal/config"
@@ -1018,7 +1019,7 @@ func TestJiraClient_CreateIssue(t *testing.T) {
 		Summary:     "Sub-task title",
 		Description: "Some **bold** text",
 	}
-	if len(fj.CreatedIssues) != 1 || fj.CreatedIssues[0] != want {
+	if len(fj.CreatedIssues) != 1 || !reflect.DeepEqual(fj.CreatedIssues[0], want) {
 		t.Fatalf("CreatedIssues = %+v, want [%+v]", fj.CreatedIssues, want)
 	}
 	if stored := fj.Issues[issue.Key].Fields.IssueType; stored == nil || stored.ID != "10003" {

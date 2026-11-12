@@ -1116,6 +1116,18 @@ type Client interface {
 	// Returns forge.ErrNotFound if the file or ref does not exist.
 	GetFileContentAtRef(ctx context.Context, owner, repo, path, ref string) ([]byte, error)
 
+	// ReadVersionedFile reads a file and the revision of its last modification.
+	// The revision binds the complete file, not the repository's current head.
+	// GitLab supports this contract; other backends may return ErrNotSupported.
+	ReadVersionedFile(ctx context.Context, owner, repo, branch, path string) (content []byte, revision string, err error)
+
+	// WriteFileIfRevision performs one conditional whole-file replacement.
+	// An empty revision creates only if absent; otherwise the revision must
+	// match the file's last modification. Conflicts wrap ErrConflict. The
+	// request is never retried after an ambiguous result. Callers authorize
+	// the control repository and path before invoking this operation.
+	WriteFileIfRevision(ctx context.Context, owner, repo, branch, path, revision, message string, content []byte) error
+
 	// CommitFiles atomically commits multiple files to the repository's
 	// default branch in a single commit. It is idempotent: if all files
 	// already have the expected content and mode, no commit is created

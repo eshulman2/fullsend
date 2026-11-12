@@ -392,3 +392,26 @@ A successful sandboxed agent run against the private-CA GitLab instance is the e
 - [Mint service administration](../infrastructure/mint-administration.md) — Deploying and managing the token mint
 - [Infrastructure Reference](../infrastructure/infrastructure-reference.md) — Token mint, WIF, and secrets deployment details
 - [CLI Internals](../dev/cli-internals.md) — Command structure and implementation details
+
+## Tracker-first saga host profiles
+
+This fork's optional tracker-first integration uses protected JSON installation
+profiles: `FULLSEND_JOURNAL_PROFILE` selects the control-repository journal,
+`FULLSEND_TRACKERFLOW_PROFILE` authorizes the adapter's exact target/policy and
+Jira destination, and `FULLSEND_TRACKER_WORKER_PROFILE` pins the worker runtime,
+configuration and local evidence validator. See [journal](../../cli/journal.md),
+[worker](../../cli/tracker-worker.md) and
+[tracker-first intake](../user/tracker-first-intake.md) for their fields.
+
+The deployment template also requires `FULLSEND_TRACKER_RUNNER_IMAGE` (a trusted
+host image pinned by digest), `FULLSEND_TRACKER_BINARY` (its local binary path)
+and `FULLSEND_TRACKER_BINARY_SHA256`. Register separate journal-writer and
+pipeline-dispatch roles under `FULLSEND_GITLAB_ROLE_REGISTRY`. These variables
+are protected installation state, not source/tracker-authored configuration.
+Existing Jira and inference credential contracts remain unchanged. Journal
+checkpoints do not recursively trigger ordinary agent pipelines.
+
+Scheduled controller cycles additionally require `FULLSEND_TRACKER_INTAKE_BINARY`,
+`FULLSEND_TRACKER_INTAKE_SHA256` and `FULLSEND_TRACKER_MANIFEST` (the reviewed
+manifest path). The example template admits only a protected schedule named
+`trackerflow reconcile`; its worker path remains API-only with typed inputs.
