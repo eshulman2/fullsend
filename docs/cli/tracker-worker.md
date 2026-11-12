@@ -88,3 +88,15 @@ configured Jira credentials. Metadata-only checks run before source fetching,
 inference and accepting evidence. Missing credentials or changed public
 classification, labels, status or assignee fail closed. Jira credentials stay on
 the host. Finalization retains these same live eligibility gates.
+
+For protected public-CVE profiles, worker admission also reloads the trusted
+parent target and verifies the current `fullsend.cve.intake` property against its
+exact admitted fields. Editing/removing the CVE, release, owner or any other
+intake field revokes execution and final acceptance. Properties never grant
+scope: canonical identity comes from the bound parent and protected Jira
+profile; current issue classification is checked before properties are read.
+
+This CVE property control is optional only when the trusted parent declares no
+`Intake` at all: generic targets still require current metadata and typed tracker
+provenance. A missing or edited Jira property never selects that fallback for a
+parent that declares CVE intake.

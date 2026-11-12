@@ -87,7 +87,9 @@ func newTrackerWorkerCmd() *cobra.Command {
 			if err != nil {
 				return errors.New("worker Jira connection unavailable")
 			}
-			worker.CheckIssue = func(ctx context.Context, r trackerflow.Request) error { return flow.CheckIssue(ctx, client, r.JiraKey) }
+			worker.CheckIssue = func(ctx context.Context, r trackerflow.Request) error {
+				return trackerflow.CheckWorkerIssue(ctx, engine, flow, trackerflow.JiraTracker{Client: client, Controls: flow.Jira.IssueControls, AssigneeAccountID: flow.Jira.AssigneeAccountID}, r)
+			}
 		}
 		if check {
 			return worker.Validate(cmd.Context(), request)
