@@ -107,3 +107,14 @@ systems require an adapter with equivalent identity and recovery behavior.
   cannot establish complete target coverage or successful triage.
 - Coding, merge and issue closure retain their existing authorization gates;
   tracker-first dispatch grants none of those actions.
+
+## Protected mapping scopes
+
+A protected installation may authorize exact maintained mapping tuples
+(repository, branch, component, product, release, stream and owner) instead of
+case-derived target IDs. Choose one admission mode; no wildcard or implicit
+repository-wide authority is introduced. This separates durable installation
+policy from an individual CVE identity. New cases still require a reviewed,
+bounded manifest, exact per-attempt source revision, matching policy/profile,
+current tracker provenance and journal admission. Scoped approval does not
+supply a case, infer applicability or grant remediation permission.
