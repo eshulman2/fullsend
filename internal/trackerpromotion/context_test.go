@@ -154,3 +154,69 @@ func TestParentDataDigestMatchesRawObservedBytes(t *testing.T) {
 		t.Fatal("changed parent data reused prior admission observation")
 	}
 }
+
+func setEvidence(t *testing.T, m trackerflow.Manifest, id string, db records, workerState, outcome, receipt string) {
+	t.Helper()
+	var parent trackerflow.CaseState
+	if err := json.Unmarshal(db[m.CaseID].Data, &parent); err != nil {
+		t.Fatal(err)
+	}
+	target := parent.Targets[id]
+	assessment := *target.Attempts[0].Assessment
+	assessment.Outcome = outcome
+	assessment.ReceiptRef = receipt
+	target.Attempts[0].Assessment = &assessment
+	parent.Targets[id] = target
+	db[m.CaseID].Data = raw(parent)
+	var worker trackerflow.WorkerState
+	if err := json.Unmarshal(db["op"].Data, &worker); err != nil {
+		t.Fatal(err)
+	}
+	worker.State = workerState
+	worker.Assessment = &assessment
+	db["op"].Data = raw(worker)
+}
+func TestPublishedHostFailureAllowsFreshReadOnlyTriage(t *testing.T) {
+	e, m, id, db := fixture()
+	setEvidence(t, m, id, db, "failed", "failed", "worker-failure:op")
+	v, err := e.Export(context.Background(), m, id, "source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v["evidence_kind"] != "failed_host_diagnostic" || v["accepted_native_diagnostic"] == nil {
+		t.Fatal("missing typed failure diagnostic")
+	}
+	if _, exists := v["accepted_native_assessment"]; exists {
+		t.Fatal("host failure claimed canonical assessment")
+	}
+}
+func TestFailureDiagnosticsCannotMasqueradeAsModelEvidence(t *testing.T) {
+	for _, tc := range []struct{ state, outcome, receipt string }{
+		{"failed", "affected", "worker-failure:op"},
+		{"failed", "failed", "worker-failure:other"},
+		{"failed", "failed", "https://gitlab.example/artifact"},
+		{"assessed", "failed", "worker-failure:op"},
+		{"running", "failed", "worker-failure:op"},
+	} {
+		t.Run(tc.state+"-"+tc.outcome+"-"+tc.receipt, func(t *testing.T) {
+			e, m, id, db := fixture()
+			setEvidence(t, m, id, db, tc.state, tc.outcome, tc.receipt)
+			if _, err := e.Export(context.Background(), m, id, "source"); err == nil {
+				t.Fatal("mismatched failure accepted")
+			}
+		})
+	}
+}
+func TestCanonicalAssessmentRetainsSeparateEvidenceKind(t *testing.T) {
+	e, m, id, _ := fixture()
+	v, err := e.Export(context.Background(), m, id, "source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v["evidence_kind"] != "canonical_assessment" || v["accepted_native_assessment"] == nil {
+		t.Fatal("canonical evidence missing")
+	}
+	if _, exists := v["accepted_native_diagnostic"]; exists {
+		t.Fatal("canonical result claimed host diagnostic")
+	}
+}
