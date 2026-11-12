@@ -62,6 +62,10 @@ canonical assessment history and return one JSON object on stdout:
 {"request_digest":"<SHA256>","outcome":"uncertain","receipt_ref":"<retained-validated-evidence>"}
 ```
 
+Receipt references can include a canonical `#sha256=<64 lowercase hex digits>`
+fragment binding a retained artifact to its content. Whitespace, control
+characters and markup are refused.
+
 Supported outcomes are `affected`, `not_affected`, `uncertain` and `failed`.
 A model response or successful pipeline alone is insufficient. The validator is
 for local evidence validation, not external publication, and receives no inherited

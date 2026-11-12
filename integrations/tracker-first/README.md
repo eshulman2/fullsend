@@ -37,7 +37,10 @@ Keep real site addresses, project identifiers and credential values out of this
 repository. Existing Jira and model authentication requirements still apply. The worker job
 requests the normal `FULLSEND_ID_TOKEN` audience. For Vertex it prepares private
 file-based credentials from the configured `FULLSEND_GCP_WIF_PROVIDER`,
-`FULLSEND_GCP_PROJECT_ID` and optional `FULLSEND_GCP_SERVICE_ACCOUNT`. The harness
+`FULLSEND_GCP_PROJECT_ID` and optional `FULLSEND_GCP_SERVICE_ACCOUNT`.
+The reviewed `FULLSEND_GCP_REGION`, when supplied, sets both
+`GOOGLE_CLOUD_LOCATION` and `CLOUD_ML_REGION` so Pi and other Vertex readers
+use the same location; no region is invented when it is absent. The harness
 must retain its ordinary Vertex provider and host-file mounts. No credential
 values are written into journal records or committed configuration.
 
