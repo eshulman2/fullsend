@@ -81,3 +81,10 @@ The [deployment template](../../integrations/tracker-first/gitlab-ci.yml) and
 [host wrapper](../../integrations/tracker-first/worker.py) are examples to install
 in a reviewed control configuration. They require protected credentials, pinned
 binaries and a prepared runtime; they are not an enabled production deployment.
+
+
+When the protected flow profile enables `jira.issue_controls`, the host needs its
+configured Jira credentials. Metadata-only checks run before source fetching,
+inference and accepting evidence. Missing credentials or changed public
+classification, labels, status or assignee fail closed. Jira credentials stay on
+the host. Finalization retains these same live eligibility gates.

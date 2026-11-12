@@ -238,6 +238,7 @@ export default defineConfig({
             { text: "fullsend run", link: "/cli/run" },
             { text: "fullsend journal", link: "/cli/journal" },
             { text: "fullsend tracker-worker", link: "/cli/tracker-worker" },
+            { text: "tracker-context adapter", link: "/cli/tracker-context" },
             { text: "fullsend self-update", link: "/cli/self-update" },
           ],
         },

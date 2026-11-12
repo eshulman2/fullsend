@@ -22,7 +22,11 @@ type JiraAPI interface {
 	GetEntityProperty(context.Context, string, string) (json.RawMessage, error)
 	CreateIssue(context.Context, jira.CreateIssueInput) (*jira.CreatedIssue, error)
 }
-type JiraTracker struct{ Client JiraAPI }
+type JiraTracker struct {
+	Client            JiraAPI
+	Controls          *IssueControls
+	AssigneeAccountID string
+}
 type scope struct {
 	CaseID     string `json:"case_id"`
 	TargetID   string `json:"target_id"`
@@ -44,7 +48,15 @@ func (j JiraTracker) Find(ctx context.Context, m Manifest, t Target) ([]TrackerR
 	if j.Client == nil {
 		return nil, errors.New("Jira client required")
 	}
-	issues, err := j.Client.SearchIssues(ctx, fmt.Sprintf(`project = "%s" AND labels = "%s"`, m.Jira.Project, marker(m, t)), 2)
+	search := j.Client.SearchIssues
+	if j.Controls != nil {
+		api, ok := j.Client.(IssueMetadataAPI)
+		if !ok {
+			return nil, errors.New("Jira metadata admission unavailable")
+		}
+		search = api.SearchIssueMetadata
+	}
+	issues, err := search(ctx, fmt.Sprintf(`project = "%s" AND labels = "%s"`, m.Jira.Project, marker(m, t)), 2)
 	if err != nil {
 		return nil, errors.New("Jira candidate search failed")
 	}
@@ -62,8 +74,11 @@ func (j JiraTracker) Verify(ctx context.Context, m Manifest, t Target, r Tracker
 	if j.Client == nil || !jiraKey.MatchString(r.Key) || !strings.HasPrefix(r.Key, m.Jira.Project+"-") || r.ID == "" || r.Binding != Hash(trackerScope(m, t)) {
 		return errors.New("tracker receipt binding mismatch")
 	}
-	issue, err := j.Client.GetIssue(ctx, r.Key)
+	issue, err := j.readIssue(ctx, m.Jira.Project, m.Jira.IssueTypeID, r.Key)
 	if err != nil {
+		if errors.Is(err, ErrAuthorization) {
+			return ErrAuthorization
+		}
 		return errors.New("Jira target lookup failed")
 	}
 	if issue.ID != r.ID || issue.Key != r.Key || issue.Fields.Project == nil || issue.Fields.Project.Key != m.Jira.Project || issue.Fields.IssueType == nil || issue.Fields.IssueType.ID != m.Jira.IssueTypeID {
@@ -104,7 +119,14 @@ func (j JiraTracker) Create(ctx context.Context, m Manifest, t Target) (TrackerR
 	if len(summary) > 255 {
 		summary = summary[:255]
 	}
-	created, err := j.Client.CreateIssue(ctx, jira.CreateIssueInput{ProjectKey: m.Jira.Project, IssueType: m.Jira.IssueTypeID, AssigneeAccountID: m.Jira.AssigneeAccountID, Summary: summary, Description: description, Labels: []string{marker(m, t)}, Properties: properties})
+	labels := []string{marker(m, t)}
+	if j.Controls != nil {
+		if err := j.Controls.Validate(); err != nil {
+			return TrackerReceipt{}, err
+		}
+		labels = append(labels, j.Controls.RequiredLabels...)
+	}
+	created, err := j.Client.CreateIssue(ctx, jira.CreateIssueInput{ProjectKey: m.Jira.Project, IssueType: m.Jira.IssueTypeID, AssigneeAccountID: m.Jira.AssigneeAccountID, Summary: summary, Description: description, Labels: labels, Properties: properties})
 	if err != nil {
 		return TrackerReceipt{}, ErrAmbiguous
 	}
@@ -119,7 +141,11 @@ func validateIntake(m Manifest, t Target) error {
 		return errors.New("invalid intake source")
 	}
 	slug := strings.TrimSuffix(strings.Trim(u.Path, "/"), ".git")
-	expected := map[string]string{"product": t.Product, "release": t.Release, "cve": m.Advisory, "disclosure": "public", "repository": slug, "owner": t.Owner, "stream": t.Stream, "fix_category": t.Intake["fix_category"], "component": t.Component, "advisory_url": t.Intake["advisory_url"]}
+	advisoryID := m.AdvisoryID
+	if advisoryID == "" {
+		advisoryID = m.Advisory
+	}
+	expected := map[string]string{"product": t.Product, "release": t.Release, "cve": advisoryID, "disclosure": "public", "repository": slug, "owner": t.Owner, "stream": t.Stream, "fix_category": t.Intake["fix_category"], "component": t.Component, "advisory_url": t.Intake["advisory_url"]}
 	if !reflect.DeepEqual(expected, t.Intake) || t.Intake["fix_category"] == "" || t.Intake["advisory_url"] == "" {
 		return errors.New("single-target intake must exactly match admitted mapping")
 	}

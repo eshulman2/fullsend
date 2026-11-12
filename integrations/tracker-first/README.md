@@ -99,3 +99,13 @@ and adjust the example seven-day retention for the deployment. Runner loss can
 still prevent upload; missing evidence remains unresolved rather than becoming
 an applicability verdict. Pipeline termination must be reconciled before its
 concurrency reservation is released.
+
+
+Protected `FULLSEND_TRACKERFLOW_PROFILE.jira.issue_controls` preserves domain Jira
+admission gates through `required_labels` and `blocked_labels`. Enabled controls
+require explicit public security classification, the configured project, issue
+type and assignee, and an active known status category. Metadata is checked before
+content, worker inference and assessment publication. Workers need the same
+host-only Jira credentials as the controller. A policy digest does not execute
+these gates; omitting controls keeps the legacy installation policy. Use manifest
+`advisory_id` for a canonical CVE separately from fixture/display text.

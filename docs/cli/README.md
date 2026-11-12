@@ -45,3 +45,6 @@ The fork's saga integrations add [fullsend journal](journal.md) for durable
 host checkpoints and [fullsend tracker-worker](tracker-worker.md) for one
 admitted target. The [tracker-first domain adapter](../guides/user/tracker-first-intake.md)
 is a separate command, not a multi-target extension of `fullsend run`.
+
+The companion [tracker-context adapter](tracker-context.md) exports fresh,
+verified planning and promotion context from an accepted branch assessment.

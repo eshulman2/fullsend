@@ -486,3 +486,39 @@ func TestWorkerRechecksParentAttemptBeforeFinalization(t *testing.T) {
 	require.False(t, finalized)
 	require.Equal(t, "running", workerState(t, w, r).State)
 }
+
+func TestWorkerLiveIssueGuardRevocationPreventsInferenceAndAcceptance(t *testing.T) {
+	for _, mode := range []string{"missing-guard", "revoked-before-run", "revoked-after-inference", "allowed"} {
+		t.Run(mode, func(t *testing.T) {
+			w, r, source, out := workerFixture(t)
+			w.FlowProfile.Jira.IssueControls = &trackerflow.IssueControls{RequiredLabels: []string{"public"}}
+			allowed := mode != "revoked-before-run"
+			called := false
+			if mode != "missing-guard" {
+				w.CheckIssue = func(context.Context, trackerflow.Request) error {
+					if !allowed {
+						return trackerflow.ErrAuthorization
+					}
+					return nil
+				}
+			}
+			w.Execute = func(ctx context.Context, req trackerflow.Request, p Profile, src, output string) error {
+				called = true
+				writeAssessment(t, output, p, req, "uncertain")
+				if mode == "revoked-after-inference" {
+					allowed = false
+				}
+				return nil
+			}
+			err := w.Run(context.Background(), r, source, out, false)
+			if mode == "allowed" {
+				require.NoError(t, err)
+				require.Equal(t, "assessed", workerState(t, w, r).State)
+			} else {
+				require.Error(t, err)
+				require.NotEqual(t, "assessed", workerState(t, w, r).State)
+			}
+			require.Equal(t, mode == "allowed" || mode == "revoked-after-inference", called)
+		})
+	}
+}

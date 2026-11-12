@@ -19,6 +19,7 @@ func newJournalCmd() *cobra.Command {
 	var id, binding, owner, kind, effectID, status, counter string
 	var generation, limit uint64
 	var ttl time.Duration
+	var required journal.Requirement
 	cmd := &cobra.Command{Use: "journal <initialize|read|admit|claim|renew|release|update|rebind|intent|effect|spend>", Short: "Checkpoint a saga in the protected GitLab control repository", Args: cobra.ExactArgs(1)}
 	cmd.Long = "Read and conditionally update the journal selected by protected FULLSEND_JOURNAL_PROFILE installation state. JSON payloads and leases use standard input/output; journal credentials remain host-side. No model is invoked."
 	cmd.Flags().StringVar(&id, "id", "", "stable admitted operation identity")
@@ -31,6 +32,9 @@ func newJournalCmd() *cobra.Command {
 	cmd.Flags().StringVar(&status, "status", "", "effect state: in_flight, ambiguous or confirmed")
 	cmd.Flags().StringVar(&counter, "counter", "", "durable budget counter")
 	cmd.Flags().Uint64Var(&limit, "limit", 0, "maximum budget consumption")
+	cmd.Flags().StringVar(&required.ID, "require-record", "", "parent record required in the same conditional journal write")
+	cmd.Flags().StringVar(&required.Binding, "require-binding", "", "required parent input binding")
+	cmd.Flags().StringVar(&required.DataDigest, "require-data-digest", "", "SHA256 of exact observed parent data bytes")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		action := args[0]
 		allowed := map[string]bool{"initialize": true, "read": true, "admit": true, "claim": true, "renew": true, "release": true, "update": true, "rebind": true, "intent": true, "effect": true, "spend": true}
@@ -43,6 +47,15 @@ func newJournalCmd() *cobra.Command {
 		engine, backend, err := openJournalHost(os.Getenv)
 		if err != nil {
 			return sanitizeJournalError(err)
+		}
+		if required.ID != "" || required.Binding != "" || required.DataDigest != "" {
+			if action == "initialize" || required.ID == id {
+				return journal.ErrBinding
+			}
+			engine, err = engine.RequireRecord(required)
+			if err != nil {
+				return sanitizeJournalError(err)
+			}
 		}
 		lease := journal.Lease{Owner: owner, Generation: generation}
 		var result any

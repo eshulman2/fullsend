@@ -28,6 +28,7 @@ type Worker struct {
 	Execute        Executor
 	Finalize       Finalizer
 	LeaseTTL       time.Duration
+	CheckIssue     func(context.Context, trackerflow.Request) error
 }
 
 func (w Worker) Validate(ctx context.Context, r trackerflow.Request) error {
@@ -98,6 +99,14 @@ func (w Worker) Validate(ctx context.Context, r trackerflow.Request) error {
 	var admitted trackerflow.WorkerState
 	if record.Binding != r.Digest() || Decode(record.Data, &admitted) != nil || admitted.Request != r {
 		return journal.ErrBinding
+	}
+	if f.Jira.IssueControls != nil {
+		if w.CheckIssue == nil {
+			return errors.New("live Jira admission required")
+		}
+		if err := w.CheckIssue(ctx, r); err != nil {
+			return err
+		}
 	}
 	return nil
 }

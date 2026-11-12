@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fullsend-ai/fullsend/internal/forge/jira"
 	"github.com/fullsend-ai/fullsend/internal/resolve"
 	"github.com/fullsend-ai/fullsend/internal/trackerflow"
 	"github.com/fullsend-ai/fullsend/internal/trackerworker"
@@ -76,6 +77,17 @@ func newTrackerWorkerCmd() *cobra.Command {
 			RunReceipt: trackerflow.RunReceipt{OperationID: request.OperationID, RequestDigest: request.Digest(), RunID: getenv("CI_PIPELINE_ID"), RunURL: getenv("CI_PIPELINE_URL"), State: "running"},
 			Execute:    trackerAssessmentExecutor,
 			Finalize:   trackerEvidenceFinalizer,
+		}
+		if flow.Jira.IssueControls != nil {
+			creds, err := jira.CredentialsFromEnv(getenv)
+			if err != nil {
+				return errors.New("worker Jira credentials required")
+			}
+			client, err := jira.NewScoped(jira.ScopedConfig{BaseURL: flow.Jira.BaseURL, APIURL: flow.Jira.APIURL}, creds)
+			if err != nil {
+				return errors.New("worker Jira connection unavailable")
+			}
+			worker.CheckIssue = func(ctx context.Context, r trackerflow.Request) error { return flow.CheckIssue(ctx, client, r.JiraKey) }
 		}
 		if check {
 			return worker.Validate(cmd.Context(), request)

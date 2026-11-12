@@ -26,12 +26,13 @@ type Profile struct {
 	Control          ControlProfile `json:"control"`
 }
 type JiraProfile struct {
-	BaseURL           string `json:"base_url"`
-	APIURL            string `json:"api_url,omitempty"`
-	Project           string `json:"project"`
-	IssueTypeID       string `json:"issue_type_id"`
-	AssigneeAccountID string `json:"assignee_account_id"`
-	ActorAccountID    string `json:"actor_account_id"`
+	IssueControls     *IssueControls `json:"issue_controls,omitempty"`
+	BaseURL           string         `json:"base_url"`
+	APIURL            string         `json:"api_url,omitempty"`
+	Project           string         `json:"project"`
+	IssueTypeID       string         `json:"issue_type_id"`
+	AssigneeAccountID string         `json:"assignee_account_id"`
+	ActorAccountID    string         `json:"actor_account_id"`
 }
 type ControlProfile struct {
 	BaseURL      string    `json:"base_url"`
@@ -58,6 +59,9 @@ func LoadProfile(getenv func(string) string) (Profile, error) {
 	}
 	if !digest.MatchString(p.PolicyDigest) || !digest.MatchString(p.ProfileDigest) || !safeID.MatchString(p.Agent) || len(p.AllowedTargetIDs) == 0 || len(p.AllowedTargetIDs) > 100 || !validOrigin(p.Control.BaseURL) || p.Control.Owner == "" || p.Control.Repository == "" || p.Control.WorkerRef == "" || p.Control.DispatchRole == "" || p.Control.LookupSince.IsZero() || p.Jira.Project == "" || p.Jira.IssueTypeID == "" || p.Jira.AssigneeAccountID == "" || p.Jira.ActorAccountID == "" || !validOrigin(p.Jira.BaseURL) || (p.Jira.APIURL != "" && !validOrigin(p.Jira.APIURL)) {
 		return Profile{}, errors.New("invalid protected trackerflow profile")
+	}
+	if p.Jira.IssueControls != nil && p.Jira.IssueControls.Validate() != nil {
+		return Profile{}, errors.New("invalid protected Jira issue controls")
 	}
 	seen := map[string]bool{}
 	for _, id := range p.AllowedTargetIDs {
