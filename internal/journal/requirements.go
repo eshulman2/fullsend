@@ -30,13 +30,23 @@ func (e *Engine) RequireRecord(r Requirement) (*Engine, error) {
 }
 
 func (b *requiredBackend) CompareAndSwap(ctx context.Context, rev string, d Document) (string, error) {
+	if err := b.validateMutation(d); err != nil {
+		return "", err
+	}
+	return b.Backend.CompareAndSwap(ctx, rev, d)
+}
+
+func (b *requiredBackend) validateMutation(d Document) error {
 	r, ok := d.Records[b.requirement.ID]
 	if !ok || r.Binding != b.requirement.Binding {
-		return "", ErrBinding
+		return ErrBinding
 	}
 	sum := sha256.Sum256(r.Data)
 	if hex.EncodeToString(sum[:]) != b.requirement.DataDigest {
-		return "", ErrBinding
+		return ErrBinding
 	}
-	return b.Backend.CompareAndSwap(ctx, rev, d)
+	if parent, ok := b.Backend.(interface{ validateMutation(Document) error }); ok {
+		return parent.validateMutation(d)
+	}
+	return nil
 }

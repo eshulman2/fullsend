@@ -411,6 +411,11 @@ are protected installation state, not source/tracker-authored configuration.
 Existing Jira and inference credential contracts remain unchanged. Journal
 checkpoints do not recursively trigger ordinary agent pipelines.
 
+Journal mutations retry at most three times only after a definitively rejected
+conditional write, reloading state and authority each time. Uncertain write
+outcomes remain recovery holds; this does not repeat inference or publication.
+See [journal conflict recovery](../../cli/journal.md#operations).
+
 Scheduled controller cycles additionally require `FULLSEND_TRACKER_INTAKE_BINARY`,
 `FULLSEND_TRACKER_INTAKE_SHA256` and `FULLSEND_TRACKER_MANIFEST` (the reviewed
 manifest path). The example template admits only a protected schedule named

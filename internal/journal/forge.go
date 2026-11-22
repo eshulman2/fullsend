@@ -49,11 +49,11 @@ func (b *ForgeBackend) Initialize(ctx context.Context) error {
 }
 func (b *ForgeBackend) Load(ctx context.Context) (Document, string, error) {
 	if err := b.authorize(ctx, b.location, "read"); err != nil {
-		return Document{}, "", err
+		return Document{}, "", nonretryableReadError(err)
 	}
 	data, rev, err := b.client.ReadVersionedFile(ctx, b.location.Owner, b.location.Repo, b.location.Branch, b.location.Path)
 	if err != nil {
-		return Document{}, "", conflict(err)
+		return Document{}, "", conflict(nonretryableReadError(err))
 	}
 	if rev == "" {
 		return Document{}, "", ErrIntegrity
@@ -66,6 +66,10 @@ func (b *ForgeBackend) CompareAndSwap(ctx context.Context, rev string, d Documen
 		return "", ErrConflict
 	}
 	if err := b.authorize(ctx, b.location, "write"); err != nil {
+		// Only the conditional write may supply a retryable revision conflict.
+		if errors.Is(err, ErrConflict) {
+			return "", fmt.Errorf("journal write authorization rejected: %v", err)
+		}
 		return "", err
 	}
 	data, err := Encode(d)
@@ -73,19 +77,69 @@ func (b *ForgeBackend) CompareAndSwap(ctx context.Context, rev string, d Documen
 		return "", err
 	}
 	err = b.client.WriteFileIfRevision(ctx, b.location.Owner, b.location.Repo, b.location.Branch, b.location.Path, rev, "Checkpoint Fullsend journal [skip ci]", data)
-	if errors.Is(err, forge.ErrConflict) {
+	if definitiveWriteConflict(err) {
 		return "", ErrConflict
 	}
 	if err != nil {
-		return "", conflict(err)
+		return "", fmt.Errorf("%w: write acknowledgement failed: %v", ErrUncertain, err)
 	}
 	// Verification failure is deliberately an uncertain write, never a blind retry.
 	current, newRev, err := b.client.ReadVersionedFile(ctx, b.location.Owner, b.location.Repo, b.location.Branch, b.location.Path)
 	if err != nil {
-		return "", conflict(err)
+		// Do not wrap the underlying error: even a read-side conflict cannot
+		// make this possibly committed write safe to retry.
+		return "", fmt.Errorf("%w: readback failed: %v", ErrUncertain, err)
 	}
-	if !bytes.Equal(current, data) {
-		return "", fmt.Errorf("%w: checkpoint changed before verification", ErrConflict)
+	observed, err := Decode(current)
+	if err != nil || newRev == "" {
+		return "", fmt.Errorf("%w: invalid checkpoint readback", ErrUncertain)
+	}
+	if id, ok := ctx.Value(checkpointRecordKey{}).(string); ok {
+		intended, exists := d.Records[id]
+		actual, found := observed.Records[id]
+		// The full parent revision still guards the write above. Only the
+		// subsequent proof is record-specific. Any target change, including
+		// lease renewal or release, remains uncertain; it cannot grant authority.
+		if !exists || !found || !sameJSON(intended, actual) {
+			return "", fmt.Errorf("%w: checkpoint record changed before verification", ErrUncertain)
+		}
+	} else if !bytes.Equal(current, data) {
+		// Direct backend users supply no single-record transaction proof.
+		return "", fmt.Errorf("%w: checkpoint changed before verification", ErrUncertain)
 	}
 	return newRev, nil
+}
+
+// definitiveWriteConflict requires every leaf to be the forge's conditional
+// rejection sentinel. errors.Is alone also accepts mixed lost-ACK/conflict joins.
+// Unknown wrappers with custom Is methods cannot prove non-commitment.
+func definitiveWriteConflict(err error) bool {
+	if err == forge.ErrConflict {
+		return true
+	}
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() []error }:
+		children := wrapped.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !definitiveWriteConflict(child) {
+				return false
+			}
+		}
+		return true
+	case interface{ Unwrap() error }:
+		return definitiveWriteConflict(wrapped.Unwrap())
+	default:
+		return false
+	}
+}
+
+// A read or authorization failure says nothing about conditional-write rejection.
+func nonretryableReadError(err error) error {
+	if errors.Is(err, ErrConflict) {
+		return fmt.Errorf("journal pre-write failure: %v", err)
+	}
+	return err
 }

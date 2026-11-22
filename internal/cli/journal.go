@@ -58,52 +58,50 @@ func newJournalCmd() *cobra.Command {
 			}
 		}
 		lease := journal.Lease{Owner: owner, Generation: generation}
-		var result any
 		ctx := cmd.Context()
-		switch action {
-		case "initialize":
-			err = backend.Initialize(ctx)
-			result = map[string]bool{"initialized": err == nil}
-		case "read":
-			result, err = engine.Read(ctx, id)
-		case "admit":
-			var data json.RawMessage
+		var data json.RawMessage
+		if action == "admit" || action == "update" || action == "rebind" || (action == "effect" && status == "confirmed") {
 			data, err = readJournalJSON(cmd.InOrStdin())
-			if err == nil {
-				result, err = engine.Admit(ctx, id, binding, data)
+			if err != nil {
+				return sanitizeJournalError(err)
 			}
-		case "claim":
-			result, err = engine.Claim(ctx, id, owner, ttl)
-		case "renew":
-			result, err = engine.Renew(ctx, id, lease, ttl)
-		case "release":
-			err = engine.Release(ctx, id, lease)
-			result = map[string]bool{"released": err == nil}
-		case "update":
-			var data json.RawMessage
-			data, err = readJournalJSON(cmd.InOrStdin())
-			if err == nil {
-				result, err = engine.Update(ctx, id, lease, func(r *journal.Record) error { r.Data = data; return nil })
+		}
+		operation := func() (any, error) {
+			// Invoke the engine afresh: each transaction reloads and rechecks
+			// parent predicates, lease ownership, transitions and budgets.
+			switch action {
+			case "initialize":
+				err := backend.Initialize(ctx)
+				return map[string]bool{"initialized": err == nil}, err
+			case "read":
+				return engine.Read(ctx, id)
+			case "admit":
+				return engine.Admit(ctx, id, binding, data)
+			case "claim":
+				return engine.Claim(ctx, id, owner, ttl)
+			case "renew":
+				return engine.Renew(ctx, id, lease, ttl)
+			case "release":
+				err := engine.Release(ctx, id, lease)
+				return map[string]bool{"released": err == nil}, err
+			case "update":
+				return engine.Update(ctx, id, lease, func(r *journal.Record) error { r.Data = data; return nil })
+			case "rebind":
+				return engine.Rebind(ctx, id, lease, binding, data)
+			case "intent":
+				return engine.Intent(ctx, id, lease, journal.Effect{ID: effectID, Kind: kind, Binding: binding, Status: "intended"})
+			case "effect":
+				return engine.Effect(ctx, id, lease, effectID, status, data)
+			case "spend":
+				return engine.Spend(ctx, id, lease, counter, limit)
 			}
-		case "rebind":
-			var data json.RawMessage
-			data, err = readJournalJSON(cmd.InOrStdin())
-			if err == nil {
-				result, err = engine.Rebind(ctx, id, lease, binding, data)
-			}
-
-		case "intent":
-			result, err = engine.Intent(ctx, id, lease, journal.Effect{ID: effectID, Kind: kind, Binding: binding, Status: "intended"})
-		case "effect":
-			var data json.RawMessage
-			if status == "confirmed" {
-				data, err = readJournalJSON(cmd.InOrStdin())
-			}
-			if err == nil {
-				result, err = engine.Effect(ctx, id, lease, effectID, status, data)
-			}
-		case "spend":
-			result, err = engine.Spend(ctx, id, lease, counter, limit)
+			return nil, journal.ErrIntegrity
+		}
+		var result any
+		if action == "initialize" || action == "read" {
+			result, err = operation()
+		} else {
+			result, err = retryJournalTransaction(ctx, operation)
 		}
 		if err != nil {
 			return sanitizeJournalError(err)
@@ -120,10 +118,55 @@ func readJournalJSON(r io.Reader) (json.RawMessage, error) {
 	return json.RawMessage(data), nil
 }
 func sanitizeJournalError(err error) error {
-	for _, known := range []error{journal.ErrConflict, journal.ErrIntegrity, journal.ErrOwnership, journal.ErrBinding, journal.ErrNotFound, journal.ErrTransition, journal.ErrBudget, context.Canceled, context.DeadlineExceeded} {
+	for _, known := range []error{journal.ErrUncertain, journal.ErrConflict, journal.ErrIntegrity, journal.ErrOwnership, journal.ErrBinding, journal.ErrNotFound, journal.ErrTransition, journal.ErrBudget, context.Canceled, context.DeadlineExceeded} {
 		if errors.Is(err, known) {
 			return known
 		}
 	}
 	return errors.New("journal operation failed; inspect control repository and connection permissions")
+}
+
+// retryJournalTransaction replays only definitively rejected writes. Never
+// replay a saved document: the operation must execute a fresh engine transaction.
+func retryJournalTransaction(ctx context.Context, operation func() (any, error)) (any, error) {
+	for attempt := 0; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		result, err := operation()
+		if err == nil || attempt == 2 || !journalConflictOnly(err) {
+			return result, err
+		}
+		timer := time.NewTimer(time.Duration(20*(attempt+1)) * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+// A joined unknown failure can indicate an uncertain outcome even when another
+// branch is a conflict. Require every leaf to be the definite-conflict sentinel.
+func journalConflictOnly(err error) bool {
+	if !errors.Is(err, journal.ErrConflict) || errors.Is(err, journal.ErrUncertain) {
+		return false
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		children := joined.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !journalConflictOnly(child) {
+				return false
+			}
+		}
+		return true
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return journalConflictOnly(wrapped.Unwrap())
+	}
+	return err == journal.ErrConflict
 }
