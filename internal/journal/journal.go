@@ -15,7 +15,9 @@ import (
 )
 
 var (
-	ErrConflict   = errors.New("journal revision conflict")
+	ErrConflict = errors.New("journal revision conflict")
+	// ErrUncertain means a checkpoint may have committed and must not be blindly retried.
+	ErrUncertain  = errors.New("journal checkpoint outcome uncertain")
 	ErrIntegrity  = errors.New("journal integrity failure")
 	ErrOwnership  = errors.New("journal ownership rejected")
 	ErrBinding    = errors.New("journal input binding changed")
@@ -98,6 +100,22 @@ func (e *Engine) load(ctx context.Context) (Document, string, error) {
 	}
 	return d, r, nil
 }
+
+// loadMutation fences even idempotent mutations against every required parent.
+// Reads intentionally bypass this guard so changed admissions remain recoverable.
+func (e *Engine) loadMutation(ctx context.Context) (Document, string, error) {
+	d, rev, err := e.load(ctx)
+	if err != nil {
+		return d, rev, err
+	}
+	if guard, ok := e.backend.(interface{ validateMutation(Document) error }); ok {
+		if err := guard.validateMutation(d); err != nil {
+			return d, rev, err
+		}
+	}
+	return d, rev, nil
+}
+
 func (e *Engine) Read(ctx context.Context, id string) (*Record, error) {
 	d, _, err := e.load(ctx)
 	if err != nil {
@@ -109,18 +127,23 @@ func (e *Engine) Read(ctx context.Context, id string) (*Record, error) {
 	}
 	return &r, nil
 }
-func (e *Engine) save(ctx context.Context, d Document, rev string) error {
+
+// checkpointRecordKey is private: only Engine transactions identify the one record
+// whose exact readback can prove their outcome after unrelated records advance.
+type checkpointRecordKey struct{}
+
+func (e *Engine) save(ctx context.Context, d Document, rev, id string) error {
 	if err := validateDocument(d); err != nil {
 		return err
 	}
-	_, err := e.backend.CompareAndSwap(ctx, rev, d)
+	_, err := e.backend.CompareAndSwap(context.WithValue(ctx, checkpointRecordKey{}, id), rev, d)
 	return err
 }
 func (e *Engine) Admit(ctx context.Context, id, binding string, data json.RawMessage) (*Record, error) {
 	if !identity.MatchString(id) || binding == "" || !json.Valid(data) {
 		return nil, ErrIntegrity
 	}
-	d, rev, err := e.load(ctx)
+	d, rev, err := e.loadMutation(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +155,7 @@ func (e *Engine) Admit(ctx context.Context, id, binding string, data json.RawMes
 	}
 	r := Record{ID: id, Binding: binding, Data: clone(data), Counters: map[string]uint64{}, Effects: map[string]Effect{}}
 	d.Records[id] = r
-	if err = e.save(ctx, d, rev); err != nil {
+	if err = e.save(ctx, d, rev, id); err != nil {
 		return nil, err
 	}
 	return &r, nil
@@ -141,7 +164,7 @@ func (e *Engine) Claim(ctx context.Context, id, owner string, ttl time.Duration)
 	if !identity.MatchString(owner) || ttl <= 0 || ttl > 24*time.Hour {
 		return Lease{}, ErrOwnership
 	}
-	d, rev, err := e.load(ctx)
+	d, rev, err := e.loadMutation(ctx)
 	if err != nil {
 		return Lease{}, err
 	}
@@ -158,7 +181,7 @@ func (e *Engine) Claim(ctx context.Context, id, owner string, ttl time.Duration)
 	r.Generation++
 	r.Lease = Lease{Owner: owner, Generation: r.Generation, ExpiresAt: e.clock().UTC().Add(ttl)}
 	d.Records[id] = r
-	if err = e.save(ctx, d, rev); err != nil {
+	if err = e.save(ctx, d, rev, id); err != nil {
 		return Lease{}, err
 	}
 	return r.Lease, nil
@@ -170,7 +193,7 @@ func (e *Engine) owns(r Record, l Lease) bool {
 // Update is a single CAS transaction. A conflict requires caller re-evaluation.
 // Identity/lease fields are immutable; counters cannot fall and effects cannot be erased.
 func (e *Engine) Update(ctx context.Context, id string, l Lease, update func(*Record) error) (*Record, error) {
-	d, rev, err := e.load(ctx)
+	d, rev, err := e.loadMutation(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +221,7 @@ func (e *Engine) Update(ctx context.Context, id string, l Lease, update func(*Re
 		return &next, nil
 	}
 	d.Records[id] = next
-	if err = e.save(ctx, d, rev); err != nil {
+	if err = e.save(ctx, d, rev, id); err != nil {
 		return nil, err
 	}
 	return &next, nil
@@ -207,7 +230,7 @@ func (e *Engine) Rebind(ctx context.Context, id string, l Lease, binding string,
 	if binding == "" || !json.Valid(data) {
 		return nil, ErrBinding
 	}
-	d, rev, err := e.load(ctx)
+	d, rev, err := e.loadMutation(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +244,7 @@ func (e *Engine) Rebind(ctx context.Context, id string, l Lease, binding string,
 	r.Binding = binding
 	r.Data = clone(data)
 	d.Records[id] = r
-	if err = e.save(ctx, d, rev); err != nil {
+	if err = e.save(ctx, d, rev, id); err != nil {
 		return nil, err
 	}
 	return &r, nil
@@ -230,7 +253,7 @@ func (e *Engine) Renew(ctx context.Context, id string, l Lease, ttl time.Duratio
 	if ttl <= 0 || ttl > 24*time.Hour {
 		return Lease{}, ErrOwnership
 	}
-	d, rev, err := e.load(ctx)
+	d, rev, err := e.loadMutation(ctx)
 	if err != nil {
 		return Lease{}, err
 	}
@@ -243,13 +266,13 @@ func (e *Engine) Renew(ctx context.Context, id string, l Lease, ttl time.Duratio
 	}
 	r.Lease.ExpiresAt = e.clock().UTC().Add(ttl)
 	d.Records[id] = r
-	if err = e.save(ctx, d, rev); err != nil {
+	if err = e.save(ctx, d, rev, id); err != nil {
 		return Lease{}, err
 	}
 	return r.Lease, nil
 }
 func (e *Engine) Release(ctx context.Context, id string, l Lease) error {
-	d, rev, err := e.load(ctx)
+	d, rev, err := e.loadMutation(ctx)
 	if err != nil {
 		return err
 	}
@@ -263,7 +286,7 @@ func (e *Engine) Release(ctx context.Context, id string, l Lease) error {
 	r.Lease.Owner = ""
 	r.Lease.ExpiresAt = time.Time{}
 	d.Records[id] = r
-	return e.save(ctx, d, rev)
+	return e.save(ctx, d, rev, id)
 }
 func (e *Engine) Spend(ctx context.Context, id string, l Lease, counter string, limit uint64) (*Record, error) {
 	return e.Update(ctx, id, l, func(r *Record) error {

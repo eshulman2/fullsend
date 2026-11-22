@@ -83,3 +83,60 @@ func TestRequiredParentStateFencesChildEffects(t *testing.T) {
 	_, err = New(nil, nil).RequireRecord(req)
 	require.ErrorIs(t, err, ErrBinding)
 }
+
+func TestRequiredParentFencesNoOpMutationsAndNestedRequirements(t *testing.T) {
+	ctx := context.Background()
+	e, _, _, _ := fixture(t)
+	parentLease := admitted(t, e)
+	parent, err := e.Read(ctx, "case-1")
+	require.NoError(t, err)
+	_, err = e.Admit(ctx, "child", "child-binding", json.RawMessage(`{}`))
+	require.NoError(t, err)
+	lease, err := e.Claim(ctx, "child", "worker", time.Minute)
+	require.NoError(t, err)
+	effect := Effect{ID: "publish", Kind: "tracker", Binding: "inputs"}
+	_, err = e.Intent(ctx, "child", lease, effect)
+	require.NoError(t, err)
+	stale := Requirement{ID: parent.ID, Binding: parent.Binding, DataDigest: dataHash(parent.Data)}
+	guarded, err := e.RequireRecord(stale)
+	require.NoError(t, err)
+	_, err = e.Update(ctx, parent.ID, parentLease, func(r *Record) error { r.Data = json.RawMessage(`{"changed":true}`); return nil })
+	require.NoError(t, err)
+	child, err := e.Read(ctx, "child")
+	require.NoError(t, err)
+	nested, err := guarded.RequireRecord(Requirement{ID: child.ID, Binding: child.Binding, DataDigest: dataHash(child.Data)})
+	require.NoError(t, err)
+	for _, g := range []*Engine{guarded, nested} {
+		_, err = g.Admit(ctx, "child", "child-binding", json.RawMessage(`{}`))
+		require.ErrorIs(t, err, ErrBinding)
+		_, err = g.Update(ctx, "child", lease, func(*Record) error { return nil })
+		require.ErrorIs(t, err, ErrBinding)
+		_, err = g.Intent(ctx, "child", lease, effect)
+		require.ErrorIs(t, err, ErrBinding)
+		_, err = g.Effect(ctx, "child", lease, "publish", EffectIntended, nil)
+		require.ErrorIs(t, err, ErrBinding)
+		_, err = g.Claim(ctx, "child", "new-worker", time.Minute)
+		require.ErrorIs(t, err, ErrBinding)
+		_, err = g.Rebind(ctx, "child", lease, "new-binding", json.RawMessage(`{}`))
+		require.ErrorIs(t, err, ErrBinding)
+		_, err = g.Renew(ctx, "child", lease, time.Minute)
+		require.ErrorIs(t, err, ErrBinding)
+		require.ErrorIs(t, g.Release(ctx, "child", lease), ErrBinding)
+		_, err = g.Read(ctx, "child")
+		require.NoError(t, err)
+	}
+}
+
+func TestRequiredParentStillChecksFinalCAS(t *testing.T) {
+	ctx := context.Background()
+	e, _, _, _ := fixture(t)
+	admitted(t, e)
+	guarded, err := e.RequireRecord(Requirement{ID: "case-1", Binding: "superseded", DataDigest: dataHash(json.RawMessage(`{}`))})
+	require.NoError(t, err)
+	d, rev, err := guarded.backend.Load(ctx)
+	require.NoError(t, err)
+	_, err = guarded.backend.CompareAndSwap(ctx, rev, d)
+	require.ErrorIs(t, err, ErrBinding)
+	_, err = New(nil, nil).Admit(ctx, "child", "binding", json.RawMessage(`{}`))
+	require.ErrorIs(t, err, ErrIntegrity)
+}
