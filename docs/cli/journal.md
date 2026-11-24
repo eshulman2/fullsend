@@ -65,6 +65,13 @@ replayed. Exhausted conflicts still require caller recovery; do not force-push o
 merge competing JSON claims. These retries do not invoke an agent or repeat an
 external action.
 
+GitLab can report a branch-reference race as HTTP 400 with the exact message
+`9:reference update: reference does not point to expected object.` The versioned
+file adapter classifies this rejected reference update as a revision conflict,
+so the same bounded fresh-transaction retry applies. Recognition of this
+additional response is exact; similar messages or other HTTP statuses do not
+gain retry authority from this rule.
+
 A lost acknowledgement or failed checkpoint verification returns
 `journal checkpoint outcome uncertain` and is never automatically retried. Mixed
 conflict/unknown errors, invalid readback, and changes to the target record stay

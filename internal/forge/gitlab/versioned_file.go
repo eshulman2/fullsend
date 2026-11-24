@@ -58,7 +58,12 @@ func (c *LiveClient) WriteFileIfRevision(ctx context.Context, owner, repo, branc
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {
 		msg := strings.ToLower(apiErr.Message)
-		if apiErr.StatusCode == http.StatusConflict || apiErr.StatusCode == http.StatusNotFound || (apiErr.StatusCode == http.StatusBadRequest && (strings.Contains(msg, "already exists") || strings.Contains(msg, "changed") || strings.Contains(msg, "last_commit") || strings.Contains(msg, "empty"))) {
+		// Gitaly can reject the branch-reference CAS after the file revision
+		// check passed. This exact failed-precondition response proves that
+		// the reference update was rejected, rather than its ACK being lost.
+		referenceCASRejected := apiErr.StatusCode == http.StatusBadRequest &&
+			apiErr.Message == "9:reference update: reference does not point to expected object."
+		if referenceCASRejected || apiErr.StatusCode == http.StatusConflict || apiErr.StatusCode == http.StatusNotFound || (apiErr.StatusCode == http.StatusBadRequest && (strings.Contains(msg, "already exists") || strings.Contains(msg, "changed") || strings.Contains(msg, "last_commit") || strings.Contains(msg, "empty"))) {
 			return fmt.Errorf("%w: versioned file changed or missing", forge.ErrConflict)
 		}
 	}
