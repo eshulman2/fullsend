@@ -1169,7 +1169,11 @@ func (c *LiveClient) CreatePipelineWithInputs(ctx context.Context, owner, repo, 
 		"inputs": in,
 	}
 
-	resp, err := c.post(ctx, path, body)
+	// A lost response must be reconciled by operation identity, never replayed.
+	resp, err := c.doOnceNoRedirect(ctx, http.MethodPost, path, body)
+	if err == nil {
+		err = checkStatus(resp, http.StatusOK, http.StatusCreated)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("create pipeline with inputs: %w", err)
 	}

@@ -96,7 +96,9 @@ Another injection variant documented in Shapira et al. (2026) bypasses the immut
 
 In fullsend's architecture, this is mitigated by several design decisions: agent configuration is immutable from within the sandbox ([ADR 0017](../ADRs/0017-credential-isolation-for-sandboxed-agents.md)), agents cannot modify their own guardrails (with one qualification: the sandbox *tool hook* scripts are written once at bootstrap and stay writable between iterations of the same run on pi — on the codex runtime they are digest-verified before every invocation, see [ADR 0100](../ADRs/0100-codex-sandbox-hooks.md), and on Claude Code before every launch, together with its `hooks.json`, which also pins the hook interpreter and `PATH`; a check before launch does not stop a process already running in the sandbox from changing them afterwards), and the harness validates agent output against a schema ([ADR 0022](../ADRs/0022-harness-level-output-schema-enforcement.md)). However, the pattern is worth noting because any mechanism that allows agents to fetch and follow external content (URLs in issues, linked documents, referenced specifications) creates a potential injection surface that persists across sessions.
 
-### Open questions
+#Exact extension-tool selection must preserve least privilege through registry admission and hook identity. [ADR 0166](../ADRs/0166-select-pi-extension-tools-without-widening-access.md) requires missing or ambiguous native tool selections to fail before inference.
+
+## Open questions
 
 - Can prompt injection be reliably detected? Current research suggests it's fundamentally hard.
 - ~~Should we treat all PR content as untrusted, even from org members? (Relates
@@ -536,6 +538,10 @@ None of these is a complete answer. They are options with different failure mode
 - **Reputation signals in triage.** Account age, prior merge count, cross-repo history as a pre-filter before an agent reads the issue. Trade-off: new legitimate reporters look like claws; this is the trust-graduation process claws farm; it sits in tension with treating all content as untrusted regardless of source.
 - **LOC or prior-merge gating.** New contributors limited until N PRs have merged. Ghostty considered this and moved to an allowlist, in part because small merged PRs are exactly what a claw farms.
 - **Provenance requirements (DCO, signed commits).** Raise the cost of disposable accounts somewhat. A polished campaign can still sign; a DCO trailer is a claim, not a proof.
+
+- A repository can opt out of Jira actor authorization at dispatch. In that
+  configuration, Jira participants who can produce matching events can use
+  them to trigger agent runs ([ADR 0177](../ADRs/0177-allow-repositories-to-skip-jira-actor-authorization.md)).
 
 ### Open questions
 

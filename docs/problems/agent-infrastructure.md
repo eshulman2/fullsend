@@ -120,6 +120,8 @@ Many fullsend scenarios skew toward **ephemeral, task-scoped** execution (triage
 - **Governance** — Policy may be applied at runtime by agents reading from a policy repo; infrastructure determines where that runtime runs and how it accesses policy.
 - **Repo readiness** — Repos need reliable CI and signals; agent infrastructure may consume or depend on the same CI (e.g. for “run tests” or “run linters”) and should not conflict with it. Headless runtimes amplify **feedback latency** and **workspace handoff** costs when CI is the only execution path.
 
+Recovering a stopped host also requires durable ownership and effect receipts; see [durable work recovery](durable-work-recovery.md). [Multi-target execution](multi-target-execution.md) adds independent branch accounting without requiring a persistent coordinator agent.
+
 ## Open questions
 
 - What is the right level of isolation per agent (process, container, microVM, separate cluster)?

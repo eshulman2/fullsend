@@ -45,6 +45,7 @@ Guides for developers working in repositories where fullsend is active.
 - [Issue commands](user/issues-commands.md) — Read, create, and post comments on issues across GitHub, GitLab, and Jira (`fullsend issues get`, `create`, `post-comment`)
 - [OWNERS file authorization](user/owners-file-authorization.md) — Authorize agent dispatch via Prow-style OWNERS files
 - [Running agents locally](user/running-agents-locally.md) — Run fullsend agents on your machine using released binaries (macOS + Linux)
+- [Tracker-first branch intake](user/tracker-first-intake.md) — Run journal-backed branch investigations through ordinary single-target workers
 
 ### Customizing agents
 

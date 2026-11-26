@@ -583,6 +583,9 @@ The existing design principle is that [the repo is the coordinator](problems/age
   [Authorization Contract v2](normative/authorization/v2/) for target CEL;
   [ADR 0054](ADRs/0054-require-authorization-on-all-agent-dispatch-paths.md);
   [ADR 0151](ADRs/0151-harness-human-role-minimums.md)).
+- Repositories can opt out of Jira actor authorization at dispatch with
+  `check_project_members: false`. Harness filters still apply
+  ([ADR 0177](ADRs/0177-allow-repositories-to-skip-jira-actor-authorization.md)).
 - Data security boundary (target state): each source-system record that
   fullsend controls is admitted to model input only after its exact current
   revision's actor and current authorization are verified. An ordinary human
@@ -1286,3 +1289,20 @@ Installation is driven entirely by the `fullsend` CLI (`fullsend github setup`,
 `fullsend repos`). This is unrelated to the **public mint** Worker, which is a separate
 deployment provisioned from `internal/dispatch/cf/` and served at `mint.fullsend.sh`
 ([ADR 0068](ADRs/0068-public-community-mint-architecture.md)).
+
+## Work recovery and tracker-first execution
+
+[ADR 0165](ADRs/0165-recover-work-through-repository-owned-operation-journals.md)
+uses versioned JSON in the control repository, initially GitLab, with conditional
+updates, ownership generations and separate effect receipts. Shared trusted
+script operations and reconciliation recover work when CI cleanup never ran.
+Source forge and tracker remain independent of journal storage.
+
+[ADR 0166](ADRs/0166-select-pi-extension-tools-without-widening-access.md)
+selects exact native Pi tools from vetted resources without broadening builtin
+or extension access. Unsupported native child selections are refused.
+
+[ADR 0167](ADRs/0167-use-tracker-first-dispatch.md) uses one investigation tracker
+per maintained target and ordinary single-target workers. The domain adapter
+owns target mapping, persistent bounds and complete accounting; it introduces
+no native multi-target plan interface into the Fullsend runner.

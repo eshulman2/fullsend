@@ -437,6 +437,9 @@ func buildPiRunCommand(params RunParams, m *piManifest, exts []piManifestExtensi
 	// assignment to the pinned name (envDataLoad's extra drop names).
 	// The launch below uses the path, which no function or alias can shadow.
 	parts = append(parts, "&& "+piBinaryPin())
+	if m.Tools != nil {
+		parts = append(parts, "&& "+piToolSelectionGuard(r.ConfigDir()+"/"+piToolSelectionExtensionFile))
+	}
 	if hooksEnabled {
 		// Before .env: that file is agent-writable and could otherwise
 		// shadow the guard's tools with functions or a PATH entry.
@@ -669,11 +672,15 @@ func buildPiRunCommand(params RunParams, m *piManifest, exts []piManifestExtensi
 	// PreToolUse hooks see every call before any declared extension does.
 	parts = append(parts, piExtensionArgs(exts)...)
 	if m.Tools != nil {
+		// Last: all vetted tools have registered before registry selection.
+		parts = append(parts, "-e "+shellQuote(r.ConfigDir()+"/"+piToolSelectionExtensionFile))
+	}
+	if m.Tools != nil {
 		tools := m.Tools
 		if len(tools) == 0 {
-			// An agent that lists only tools pi cannot provide (or only
-			// Skill) gets no built-in tools rather than the defaultTools set.
-			parts = append(parts, "--no-builtin-tools")
+			// Explicit empty selection excludes extension tools as well as
+			// builtins; --no-builtin-tools would still expose extensions.
+			parts = append(parts, "--tools ''")
 		} else {
 			parts = append(parts, "--tools "+shellQuote(strings.Join(tools, ",")))
 		}
@@ -1072,6 +1079,9 @@ func (r PiRuntime) piExecModel(ctx context.Context, params RunParams, m *piManif
 	}
 	if exitCode == piEditRepairTamperedExit && piEditRepairEnabled(m.Tools) {
 		return piRunResult{exitCode: exitCode, modelSpec: modelSpec, guardErr: fmt.Errorf("pi edit-repair extension %s missing or modified in %s; refusing to run (was Bootstrap run, or did the agent change it?)", piEditRepairExtensionFile, r.ConfigDir())}
+	}
+	if exitCode == piToolSelectionExit && m.Tools != nil {
+		return piRunResult{exitCode: exitCode, modelSpec: modelSpec, guardErr: fmt.Errorf("pi strict tool selection failed or selector changed; refusing inference")}
 	}
 	if exitCode == piManifestTamperedExit {
 		return piRunResult{exitCode: exitCode, modelSpec: modelSpec, guardErr: fmt.Errorf("the pi manifest at %s is not the one Bootstrap wrote; refusing to run because it configures the hook plan and the sub-agent children (did the agent or a rewritten .env change it?)", r.piManifestPath())}

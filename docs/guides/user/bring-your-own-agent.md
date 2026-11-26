@@ -527,7 +527,7 @@ The agent definition is Markdown with YAML frontmatter:
 |-------|---------|
 | `name` | Must match the filename (sans `.md`) |
 | `description` | One-line summary |
-| `tools` | The tools the agent may use, in Claude Code's names (`Read`, `Grep`, `Glob`, `LS`, `Bash(gh,jq)`, ...). Restrict to what's needed. On pi the names are translated, and two of them surprise people — see [What to write in `tools:`](../../runtimes/pi.md#what-to-write-in-tools) |
+| `tools` | The tools the agent may use, in Claude Code's names (`Read`, `Grep`, `Glob`, `LS`, `Bash(gh,jq)`, ...). Restrict to what's needed. On pi built-in names are translated and exact vetted native extension names are preserved; two built-in names surprise people — see [What to write in `tools:`](../../runtimes/pi.md#what-to-write-in-tools) |
 | `model` | LLM model (`opus`, `sonnet`, etc.) |
 | `skills` | [Skill](../../glossary.md#skill) names to load, as uploaded under `skills/`: a skill's declared `SKILL.md` `name:`, or its directory basename when none is declared |
 | `disallowedTools` | Bash patterns the agent is forbidden from running, e.g. `Bash(git push *), Bash(gh issue edit *)` |
@@ -1224,3 +1224,11 @@ allowed_remote_resources:
 - [Default, derived, and custom agents](default-vs-custom.md) — when configuration crosses into custom agent territory
 - [Escalation ladder](escalation-ladder.md) — prove-it path before deriving or replacing a core agent
 - [Standalone mint](../infrastructure/standalone-mint.md) — custom agent roles and identity
+
+## Consuming a recovery journal
+
+Trusted host scripts can use [fullsend journal](../../cli/journal.md) for
+conditional checkpoints. Keep its credentials out of assessment sandboxes.
+For tracker-first assessments, [fullsend tracker-worker](../../cli/tracker-worker.md)
+separates inference from local evidence validation and publication, so a stale
+result cannot reach an ordinary publishing post-script first.

@@ -118,6 +118,7 @@ type piAgentManifest struct {
 	// Tools is the built-in set a child gets (the parent's, minus
 	// Agent/Task); ExploreTools the read-only set for subagent_type Explore.
 	Tools          []string `json:"tools"`
+	NativeTools    []string `json:"nativeTools,omitempty"`
 	ExploreTools   []string `json:"exploreTools"`
 	MaxConcurrent  int      `json:"maxConcurrent"`
 	TimeoutSeconds int      `json:"timeoutSeconds"`
@@ -149,6 +150,9 @@ type piManifest struct {
 	// Tools are pi tool names for --tools; nil means the settings.json
 	// defaultTools set (piDefaultTools).
 	Tools []string `json:"tools"`
+	// StrictTools marks a runner-emitted explicit declaration, including [].
+	StrictTools bool     `json:"strictTools"`
+	NativeTools []string `json:"nativeTools,omitempty"`
 	// BashAllowlist is the Bash(a,b) first-token allowlist from the agent
 	// definition. Under Claude Code it is steering, not a security control
 	// (ADR 0027: the sandbox is the boundary and tool-level restrictions are
@@ -285,8 +289,13 @@ func (r PiRuntime) Bootstrap(input BootstrapInput) error {
 	}
 
 	tools, unsupported := piToolsFor(def.Tools)
-	for _, u := range unsupported {
-		fmt.Fprintf(os.Stderr, "Agent tool %q has no pi equivalent and is dropped from the allowlist\n", u)
+	if len(unsupported) != 0 {
+		return fmt.Errorf("pi tool selections must be exact names: %q", unsupported)
+	}
+	if def.Tools != nil {
+		if err := uploadBytes(sandboxName, cfg+"/"+piToolSelectionExtensionFile, piToolSelectionExtensionJS); err != nil {
+			return fmt.Errorf("installing tool selector: %w", err)
+		}
 	}
 	// pi's skills are prompt-driven: the system prompt tells the model to
 	// `read` a skill's SKILL.md, and that section is only emitted when the
@@ -300,6 +309,8 @@ func (r PiRuntime) Bootstrap(input BootstrapInput) error {
 		Description:       def.Description,
 		Model:             def.Model,
 		Tools:             tools,
+		StrictTools:       def.Tools != nil,
+		NativeTools:       piNativeToolsFor(def.Tools),
 		BashAllowlist:     def.BashAllowlist,
 		BashAllowlistMode: piBashAllowlistMode(),
 		Extensions:        extensions,
@@ -554,6 +565,7 @@ func (r PiRuntime) piAgentManifestFor(sandboxName string, def *piAgentDef, tools
 		ProviderModels:   piAgentProviderModels(gatewayIDs),
 		Thinking:         piAgentThinking(),
 		Tools:            childTools,
+		NativeTools:      piNativeToolsFor(def.Tools),
 		ExploreTools:     append([]string{}, piExploreTools...),
 		MaxConcurrent:    piAgentMaxConcurrent,
 		TimeoutSeconds:   piAgentTimeoutSeconds,
