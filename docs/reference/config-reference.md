@@ -550,6 +550,7 @@ GitLab authorization
 |---|---|
 | `write.groups`, `write.accounts` | Jira groups (by name or group ID) and Jira account IDs granted the fullsend `write` role |
 | `triage.groups`, `triage.accounts` | Jira groups and account IDs granted the fullsend `triage` role |
+| `check_project_members` | Boolean, defaults to `true`. Set to `false` to skip all Jira actor authorization at dispatch. The poller skips project role and group lookups, and the dispatch gate ignores the account and group lists and label authorization policy. Harness trigger filters still apply. |
 | `labels` | How a label-added event is authorized: `jira_editors` (default once the entry is present), `allowlist`, or `project_roles` |
 
 - **Slash commands and other non-label events:** when the entry sets a

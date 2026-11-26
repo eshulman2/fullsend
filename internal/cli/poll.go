@@ -542,10 +542,7 @@ func newCELMatcher(ctx context.Context, fullsendDir string) (*celMatcher, error)
 // and take the role threshold under allowlist or project_roles, where the
 // poller resolves the label author's role from that source.
 func (m *celMatcher) authOptions() harnessdispatch.AuthOptions {
-	return harnessdispatch.AuthOptions{
-		JiraLabelsByEditPermission: m.jiraAuth != nil &&
-			m.jiraAuth.EffectiveJiraLabels() == config.JiraLabelsEditors,
-	}
+	return harnessdispatch.AuthOptionsForJiraProvider(m.jiraAuth)
 }
 
 // jiraPollOptions builds the poller options every jira-poll target forge
@@ -570,6 +567,9 @@ func jiraPollOptions(args jiraPollArgs, matcher *celMatcher) jirapoll.Options {
 func jiraPollAuthorization(p *config.AuthorizationProvider) jirapoll.Authorization {
 	if p == nil {
 		return jirapoll.Authorization{}
+	}
+	if p.SkipsJiraActorAuthorization() {
+		return jirapoll.Authorization{Configured: true, SkipActorAuthorization: true}
 	}
 	list := func(l *config.JiraActorList) jirapoll.ActorList {
 		if l == nil {
